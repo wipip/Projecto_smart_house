@@ -34,7 +34,7 @@ if not st.session_state.connected:
         st.error(f"Error de conexión MQTT: {e}")
 
 # ==================================================
-# [span_0](start_span)NAVEGACIÓN (Requisito: Mínimo dos páginas[span_0](end_span))
+# NAVEGACIÓN (Requisito: Mínimo dos páginas)
 # ==================================================
 st.sidebar.title("🧭 Menú de Control")
 pagina = st.sidebar.radio("Selecciona una sección:", ["📊 Dashboard de Sensores", "🎙️ Control Multimodal (Voz/Texto)"])
@@ -44,7 +44,7 @@ pagina = st.sidebar.radio("Selecciona una sección:", ["📊 Dashboard de Sensor
 # ==================================================
 if pagina == "📊 Dashboard de Sensores":
     st.title("🏠 SmartCase: Monitoreo Físico")
-    [span_1](start_span)st.markdown("Interacción en tiempo real con sensores simulados en Wokwi[span_1](end_span).")
+    st.markdown("Interacción en tiempo real con sensores simulados en Wokwi.")
 
     # Indicadores visuales (Metrics)
     col1, col2, col3 = st.columns(3)
@@ -71,7 +71,7 @@ if pagina == "📊 Dashboard de Sensores":
     st.rerun()
 
 # ==================================================
-# [span_2](start_span)PÁGINA 2: CONTROL MULTIMODAL (Voz/Texto[span_2](end_span))
+# PÁGINA 2: CONTROL MULTIMODAL (Voz/Texto)
 # ==================================================
 elif pagina == "🎙️ Control Multimodal (Voz/Texto)":
     st.title("🎙️ Interacción Multimodal")
