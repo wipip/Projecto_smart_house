@@ -9,7 +9,7 @@ from streamlit_mic_recorder import mic_recorder
 # ==================================================
 st.set_page_config(page_title="SmartCase AI Multimodal", layout="wide")
 
-# Inicialización del estado global para persistencia y estabilidad
+# Inicialización del estado global para persistencia
 if "client" not in st.session_state:
     st.session_state.client = paho.Client(client_id="SmartCaseAI_Unique")
     st.session_state.sensor_data = {"temperature": 0, "humidity": 0, "motion": 0}
@@ -22,7 +22,7 @@ def on_message(client, userdata, message):
     except:
         pass
 
-# Lógica de conexión única para evitar bucles de reconexión
+# Lógica de conexión única
 if not st.session_state.connected:
     try:
         st.session_state.client.on_message = on_message
@@ -34,7 +34,7 @@ if not st.session_state.connected:
         st.error(f"Error de conexión MQTT: {e}")
 
 # ==================================================
-# NAVEGACIÓN (Mínimo dos páginas requeridas)
+# [span_0](start_span)NAVEGACIÓN (Requisito: Mínimo dos páginas[span_0](end_span))
 # ==================================================
 st.sidebar.title("🧭 Menú de Control")
 pagina = st.sidebar.radio("Selecciona una sección:", ["📊 Dashboard de Sensores", "🎙️ Control Multimodal (Voz/Texto)"])
@@ -44,7 +44,7 @@ pagina = st.sidebar.radio("Selecciona una sección:", ["📊 Dashboard de Sensor
 # ==================================================
 if pagina == "📊 Dashboard de Sensores":
     st.title("🏠 SmartCase: Monitoreo Físico")
-    st.markdown("Interacción en tiempo real con sensores simulados en Wokwi.")
+    [span_1](start_span)st.markdown("Interacción en tiempo real con sensores simulados en Wokwi[span_1](end_span).")
 
     # Indicadores visuales (Metrics)
     col1, col2, col3 = st.columns(3)
@@ -71,17 +71,16 @@ if pagina == "📊 Dashboard de Sensores":
     st.rerun()
 
 # ==================================================
-# PÁGINA 2: CONTROL MULTIMODAL
+# [span_2](start_span)PÁGINA 2: CONTROL MULTIMODAL (Voz/Texto[span_2](end_span))
 # ==================================================
 elif pagina == "🎙️ Control Multimodal (Voz/Texto)":
     st.title("🎙️ Interacción Multimodal")
-    [span_1](start_span)st.info("Utiliza comandos de voz o texto para interactuar con el sistema físico[span_1](end_span).")
+    st.info("Utiliza comandos de voz o texto para interactuar con el sistema físico.")
 
-    # MODALIDAD 1: VOZ (Activación de Micrófono)
+    # MODALIDAD 1: VOZ
     st.markdown("### 🗣️ Entrada por Voz")
     st.write("Haz clic en 'Record' para hablar:")
     
-    # El componente mic_recorder activa el hardware del micrófono
     audio = mic_recorder(
         start_prompt="Record 🎙️", 
         stop_prompt="Stop ⏹️", 
@@ -91,7 +90,6 @@ elif pagina == "🎙️ Control Multimodal (Voz/Texto)":
     if audio:
         st.audio(audio['bytes'])
         st.success("Audio capturado correctamente.")
-        st.caption("Nota: El audio ha sido recibido por el sistema para su procesamiento.")
 
     # MODALIDAD 2: TEXTO
     st.markdown("---")
@@ -101,15 +99,15 @@ elif pagina == "🎙️ Control Multimodal (Voz/Texto)":
     if st.button("Ejecutar Comando"):
         if "activar" in comando or "prender" in comando:
             st.session_state.client.publish("cmqtt_s", json.dumps({"Act1": "ON"}))
-            st.success("Comando de voz/texto enviado: Encender")
+            st.success("Comando enviado: Encender")
         elif "apagar" in comando or "desactivar" in comando:
             st.session_state.client.publish("cmqtt_s", json.dumps({"Act1": "OFF"}))
-            st.warning("Comando de voz/texto enviado: Apagar")
+            st.warning("Comando enviado: Apagar")
         else:
-            st.error("Comando no reconocido. Intenta con palabras clave como 'activar'.")
+            st.error("Comando no reconocido.")
 
 # ==================================================
-# PIE DE PÁGINA (CRÉDITOS)
+# PIE DE PÁGINA (DUEÑOS)
 # ==================================================
 st.sidebar.markdown("---")
 st.sidebar.markdown(
