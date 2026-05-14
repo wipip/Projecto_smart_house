@@ -8,23 +8,32 @@ from keras.models import load_model
 from PIL import Image
 
 # ==========================================
-# VOZ
+# BOKEH (VERSIÓN CORRECTA)
 # ==========================================
 
-from bokeh.models import Button, CustomJS
+from bokeh.models.widgets import Button
+from bokeh.models import CustomJS
+
 from streamlit_bokeh_events import streamlit_bokeh_events
 
 # ==========================================
-# CONFIGURACIÓN
+# CONFIG
 # ==========================================
 
 st.set_page_config(
-    page_title="SmartCase AI Multimodal",
+    page_title="SmartCase AI",
     layout="wide"
 )
 
 # ==========================================
 # MQTT
+# ==========================================
+
+BROKER = "157.230.214.127"
+PORT = 1883
+
+# ==========================================
+# ESTADO GLOBAL
 # ==========================================
 
 if "client" not in st.session_state:
@@ -49,12 +58,15 @@ def on_message(client, userdata, message):
 
     try:
 
+        payload = message.payload.decode("utf-8")
+
         st.session_state.sensor_data = json.loads(
-            message.payload.decode("utf-8")
+            payload
         )
 
-    except:
-        pass
+    except Exception as e:
+
+        print(e)
 
 # ==========================================
 # CONECTAR MQTT
@@ -67,8 +79,8 @@ if not st.session_state.connected:
         st.session_state.client.on_message = on_message
 
         st.session_state.client.connect(
-            "157.230.214.127",
-            1883
+            BROKER,
+            PORT
         )
 
         st.session_state.client.subscribe(
@@ -81,17 +93,18 @@ if not st.session_state.connected:
 
     except Exception as e:
 
-        st.error(f"Error MQTT: {e}")
+        st.error(f"MQTT Error: {e}")
 
 # ==========================================
-# MODELO IA
+# CARGAR IA
 # ==========================================
 
 @st.cache_resource
-def load_ai_model():
+def cargar_modelo():
+
     return load_model("keras_model.h5")
 
-model = load_ai_model()
+model = cargar_modelo()
 
 class_names = [
     "Juan",
@@ -104,106 +117,113 @@ class_names = [
 # SIDEBAR
 # ==========================================
 
-st.sidebar.title("🧭 Menú de Control")
+st.sidebar.title("🧭 Menú")
 
 pagina = st.sidebar.radio(
-    "Selecciona una sección:",
+
+    "Selecciona:",
+
     [
-        "📊 Dashboard de Sensores",
-        "🎙️ Control Multimodal",
-        "📷 Reconocimiento Visual IA"
+        "📊 Dashboard",
+        "🎙️ Voz y Texto",
+        "📷 IA Visual"
     ]
 )
 
 # ==========================================
-# PÁGINA 1
 # DASHBOARD
 # ==========================================
 
-if pagina == "📊 Dashboard de Sensores":
+if pagina == "📊 Dashboard":
 
-    st.title("🏠 SmartCase")
+    st.title("🏠 SmartCase Dashboard")
 
     data = st.session_state.sensor_data
 
-    col1, col2, col3 = st.columns(3)
+    c1, c2, c3 = st.columns(3)
 
-    col1.metric(
+    c1.metric(
         "Temperatura",
         f"{data['temperature']} °C"
     )
 
-    col2.metric(
+    c2.metric(
         "Humedad",
         f"{data['humidity']} %"
     )
 
-    col3.metric(
+    c3.metric(
         "Movimiento",
-        "⚠️ MOVIMIENTO"
-        if data['motion'] == 1
-        else "✅ SEGURO"
+
+        "⚠️ Detectado"
+        if data["motion"] == 1
+        else "✅ Seguro"
     )
 
     st.markdown("---")
 
-    c1, c2 = st.columns(2)
+    b1, b2 = st.columns(2)
 
-    if c1.button("🚨 Activar Alarma"):
+    if b1.button("🚨 Activar"):
 
         st.session_state.client.publish(
+
             "cmqtt_s",
-            json.dumps({"Act1": "ON"})
+
+            json.dumps({
+                "Act1": "ON"
+            })
         )
 
         st.success("Alarma activada")
 
-    if c2.button("🟢 Desactivar Alarma"):
+    if b2.button("🟢 Desactivar"):
 
         st.session_state.client.publish(
+
             "cmqtt_s",
-            json.dumps({"Act1": "OFF"})
+
+            json.dumps({
+                "Act1": "OFF"
+            })
         )
 
         st.warning("Alarma desactivada")
 
-    time.sleep(2)
-
-    st.rerun()
-
 # ==========================================
-# PÁGINA 2
-# CONTROL MULTIMODAL
+# VOZ + TEXTO
 # ==========================================
 
-elif pagina == "🎙️ Control Multimodal":
+elif pagina == "🎙️ Voz y Texto":
 
-    st.title("🎙️ Control por Voz y Texto")
-
-    st.markdown("## 🗣️ Control por Voz")
+    st.title("🎙️ Control por Voz")
 
     st.write("Presiona el botón y habla")
 
-    # ==========================================
-    # BOTÓN VOZ
-    # ==========================================
+    # ======================================
+    # BOTÓN
+    # ======================================
 
     stt_button = Button(
+
         label="🎤 Hablar",
+
         width=200
     )
 
     stt_button.js_on_event(
+
         "button_click",
 
         CustomJS(code="""
+
         var recognition = new webkitSpeechRecognition();
 
         recognition.continuous = false;
         recognition.interimResults = false;
         recognition.lang = 'es-ES';
 
-        recognition.onresult = function (e) {
+        recognition.onresult = function(e) {
 
             var value = "";
 
@@ -220,8 +240,11 @@ elif pagina == "🎙️ Control Multimodal":
             if (value != "") {
 
                 document.dispatchEvent(
+
                     new CustomEvent(
+
                         "GET_TEXT",
+
                         {detail: value}
                     )
                 );
@@ -229,21 +252,28 @@ elif pagina == "🎙️ Control Multimodal":
         }
 
         recognition.start();
+
         """)
     )
 
     result = streamlit_bokeh_events(
+
         stt_button,
+
         events="GET_TEXT",
+
         key="listen",
+
         refresh_on_update=False,
+
         override_height=75,
+
         debounce_time=0
     )
 
-    # ==========================================
+    # ======================================
     # RESULTADO VOZ
-    # ==========================================
+    # ======================================
 
     if result:
 
@@ -251,60 +281,60 @@ elif pagina == "🎙️ Control Multimodal":
 
             voz = result.get("GET_TEXT").lower()
 
-            st.success(f"Comando detectado: {voz}")
-
-            # ======================================
-            # COMANDOS VOZ
-            # ======================================
+            st.success(f"Detectado: {voz}")
 
             if (
+
                 "activar" in voz
                 or
                 "encender" in voz
                 or
                 "prender" in voz
+
             ):
 
                 st.session_state.client.publish(
+
                     "cmqtt_s",
-                    json.dumps({"Act1": "ON"})
+
+                    json.dumps({
+                        "Act1": "ON"
+                    })
                 )
 
-                st.success(
-                    "Comando enviado → ON"
-                )
+                st.success("Comando ON enviado")
 
             elif (
+
                 "apagar" in voz
                 or
                 "desactivar" in voz
+
             ):
 
                 st.session_state.client.publish(
+
                     "cmqtt_s",
-                    json.dumps({"Act1": "OFF"})
+
+                    json.dumps({
+                        "Act1": "OFF"
+                    })
                 )
 
-                st.warning(
-                    "Comando enviado → OFF"
-                )
+                st.warning("Comando OFF enviado")
 
             else:
 
-                st.error(
-                    "Comando no reconocido"
-                )
+                st.error("Comando no reconocido")
 
-    # ==========================================
+    # ======================================
     # TEXTO
-    # ==========================================
+    # ======================================
 
     st.markdown("---")
 
-    st.markdown("## ✍️ Control por Texto")
-
     comando = st.text_input(
-        "Escribe una orden:"
+        "Escribe un comando:"
     ).lower()
 
     if st.button("Enviar Texto"):
@@ -316,11 +346,15 @@ elif pagina == "🎙️ Control Multimodal":
         ):
 
             st.session_state.client.publish(
+
                 "cmqtt_s",
-                json.dumps({"Act1": "ON"})
+
+                json.dumps({
+                    "Act1": "ON"
+                })
             )
 
-            st.success("Alarma activada")
+            st.success("ON enviado")
 
         elif (
             "apagar" in comando
@@ -329,32 +363,31 @@ elif pagina == "🎙️ Control Multimodal":
         ):
 
             st.session_state.client.publish(
+
                 "cmqtt_s",
-                json.dumps({"Act1": "OFF"})
+
+                json.dumps({
+                    "Act1": "OFF"
+                })
             )
 
-            st.warning("Alarma desactivada")
-
-        else:
-
-            st.error("Comando no reconocido")
+            st.warning("OFF enviado")
 
 # ==========================================
-# PÁGINA 3
 # IA VISUAL
 # ==========================================
 
-elif pagina == "📷 Reconocimiento Visual IA":
+elif pagina == "📷 IA Visual":
 
-    st.title("📷 IA Visual")
+    st.title("📷 Reconocimiento IA")
 
-    img_file_buffer = st.camera_input(
+    foto = st.camera_input(
         "Tomar Foto"
     )
 
-    if img_file_buffer is not None:
+    if foto is not None:
 
-        img = Image.open(img_file_buffer)
+        img = Image.open(foto)
 
         st.image(img, width=300)
 
@@ -367,7 +400,9 @@ elif pagina == "📷 Reconocimiento Visual IA":
         ) - 1
 
         data = np.ndarray(
+
             shape=(1, 224, 224, 3),
+
             dtype=np.float32
         )
 
@@ -379,46 +414,46 @@ elif pagina == "📷 Reconocimiento Visual IA":
 
         confidence = prediction[0][index]
 
-        detected_class = class_names[index]
+        clase = class_names[index]
 
-        st.success(
-            f"Detectado: {detected_class}"
-        )
+        st.success(f"Detectado: {clase}")
 
         st.write(
             f"Probabilidad: {confidence:.2f}"
         )
 
-        # ======================================
-        # AUTOMATIZACIÓN MQTT
-        # ======================================
+        # ==================================
+        # MQTT AUTOMÁTICO
+        # ==================================
 
-        if (
-            detected_class == "Juan"
-            and confidence > 0.7
-        ):
+        if clase == "Juan" and confidence > 0.7:
 
             st.session_state.client.publish(
+
                 "cmqtt_s",
-                json.dumps({"Act1": "OFF"})
+
+                json.dumps({
+                    "Act1": "OFF"
+                })
             )
 
             st.success(
-                "Juan detectado → alarma OFF"
+                "Juan detectado → OFF"
             )
 
-        elif (
-            detected_class == "Celular"
-            and confidence > 0.7
-        ):
+        elif clase == "Celular" and confidence > 0.7:
 
             st.session_state.client.publish(
+
                 "cmqtt_s",
-                json.dumps({"Act1": "ON"})
+
+                json.dumps({
+                    "Act1": "ON"
+                })
             )
 
             st.warning(
-                "Celular detectado → alarma ON"
+                "Celular detectado → ON"
             )
 
 # ==========================================
@@ -430,10 +465,9 @@ st.sidebar.markdown("---")
 st.sidebar.markdown(
     """
     <div style='text-align:center;
-                color:#4F8BF9;
-                font-weight:bold;'>
+                font-weight:bold;
+                color:#4F8BF9;'>
 
-        Creado por:<br>
         👨‍💻 Juan Felipe<br>
         👨‍💻 Santiago Marín
 
