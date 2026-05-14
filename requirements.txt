@@ -1,3 +1,9 @@
 streamlit
 paho-mqtt==1.6.1
 streamlit-mic-recorder
+keras
+streamlit-webrtc
+numpy
+opencv-python-headless
+Pillow
+tensorflow==2.12
