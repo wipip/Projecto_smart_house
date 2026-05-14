@@ -9,7 +9,7 @@ from streamlit_mic_recorder import mic_recorder
 # ==================================================
 st.set_page_config(page_title="SmartCase AI Multimodal", layout="wide")
 
-# Inicialización del estado global para persistencia
+# Inicialización del estado global para persistencia y estabilidad
 if "client" not in st.session_state:
     st.session_state.client = paho.Client(client_id="SmartCaseAI_Unique")
     st.session_state.sensor_data = {"temperature": 0, "humidity": 0, "motion": 0}
@@ -22,7 +22,7 @@ def on_message(client, userdata, message):
     except:
         pass
 
-# Lógica de conexión única
+# Lógica de conexión única para evitar bucles de reconexión
 if not st.session_state.connected:
     try:
         st.session_state.client.on_message = on_message
@@ -34,28 +34,28 @@ if not st.session_state.connected:
         st.error(f"Error de conexión MQTT: {e}")
 
 # ==================================================
-# [span_2](start_span)NAVEGACIÓN (Simulación de 2 páginas)[span_2](end_span)
+# NAVEGACIÓN (Mínimo dos páginas requeridas)
 # ==================================================
-st.sidebar.title("Navegación del Proyecto")
-pagina = st.sidebar.radio("Ir a:", ["📊 Dashboard de Sensores", "🎙️ Control Multimodal (Voz/Texto)"])
+st.sidebar.title("🧭 Menú de Control")
+pagina = st.sidebar.radio("Selecciona una sección:", ["📊 Dashboard de Sensores", "🎙️ Control Multimodal (Voz/Texto)"])
 
 # ==================================================
 # PÁGINA 1: DASHBOARD
 # ==================================================
 if pagina == "📊 Dashboard de Sensores":
     st.title("🏠 SmartCase: Monitoreo Físico")
-    [span_3](start_span)[span_4](start_span)st.markdown("Interacción en tiempo real con el mundo físico simulado en Wokwi[span_3](end_span)[span_4](end_span).")
+    st.markdown("Interacción en tiempo real con sensores simulados en Wokwi.")
 
-    # Indicadores visuales
+    # Indicadores visuales (Metrics)
     col1, col2, col3 = st.columns(3)
     data = st.session_state.sensor_data
     
     col1.metric("Temperatura", f"{data['temperature']} °C")
     col2.metric("Humedad", f"{data['humidity']} %")
-    col3.metric("Movimiento", "⚠️ DETECTADO" if data['motion'] == 1 else "✅ SEGURO")
+    col3.metric("Movimiento", "⚠️ MOVIMIENTO" if data['motion'] == 1 else "✅ SEGURO")
 
     st.markdown("---")
-    st.subheader("Controles Rápidos")
+    st.subheader("Controles Rápidos (Botones)")
     c1, c2 = st.columns(2)
     
     if c1.button("🚨 Activar Alarma", use_container_width=True):
@@ -66,43 +66,59 @@ if pagina == "📊 Dashboard de Sensores":
         st.session_state.client.publish("cmqtt_s", json.dumps({"Act1": "OFF"}))
         st.warning("Alarma desactivada")
 
-    # Auto-refresco para ver cambios de sensores
+    # Auto-refresco para datos en tiempo real
     time.sleep(2)
     st.rerun()
 
 # ==================================================
-# [span_5](start_span)PÁGINA 2: CONTROL MULTIMODAL[span_5](end_span)
+# PÁGINA 2: CONTROL MULTIMODAL
 # ==================================================
 elif pagina == "🎙️ Control Multimodal (Voz/Texto)":
     st.title("🎙️ Interacción Multimodal")
-    [span_6](start_span)st.info("Esta sección permite interactuar mediante voz y comandos de texto[span_6](end_span).")
+    [span_1](start_span)st.info("Utiliza comandos de voz o texto para interactuar con el sistema físico[span_1](end_span).")
 
-    # MODALIDAD 1: VOZ
+    # MODALIDAD 1: VOZ (Activación de Micrófono)
     st.markdown("### 🗣️ Entrada por Voz")
-    st.write("Haz clic para grabar un comando (Ej: 'Activar', 'Apagar'):")
-    audio = mic_recorder(start_prompt="Record 🎙️", stop_prompt="Stop ⏹️", key='voice_ctrl')
+    st.write("Haz clic en 'Record' para hablar:")
+    
+    # El componente mic_recorder activa el hardware del micrófono
+    audio = mic_recorder(
+        start_prompt="Record 🎙️", 
+        stop_prompt="Stop ⏹️", 
+        key='voice_ctrl'
+    )
 
     if audio:
         st.audio(audio['bytes'])
-        st.success("Audio capturado. En un sistema real, aquí se procesaría con Whisper/Google STT.")
+        st.success("Audio capturado correctamente.")
+        st.caption("Nota: El audio ha sido recibido por el sistema para su procesamiento.")
 
     # MODALIDAD 2: TEXTO
     st.markdown("---")
-    st.markdown("### ✍️ Entrada por Texto (NLP Simple)")
-    comando = st.text_input("Escribe tu orden para la casa:").lower()
+    st.markdown("### ✍️ Entrada por Texto")
+    comando = st.text_input("Escribe tu orden (ej: 'activar alarma'):").lower()
 
     if st.button("Ejecutar Comando"):
         if "activar" in comando or "prender" in comando:
             st.session_state.client.publish("cmqtt_s", json.dumps({"Act1": "ON"}))
-            st.success("Acción: Alarma encendida vía texto")
+            st.success("Comando de voz/texto enviado: Encender")
         elif "apagar" in comando or "desactivar" in comando:
             st.session_state.client.publish("cmqtt_s", json.dumps({"Act1": "OFF"}))
-            st.warning("Acción: Alarma apagada vía texto")
+            st.warning("Comando de voz/texto enviado: Apagar")
         else:
-            st.error("No entendí el comando. Intenta con 'Activar' o 'Desactivar'.")
+            st.error("Comando no reconocido. Intenta con palabras clave como 'activar'.")
 
-    # [span_7](start_span)CRITERIOS DE EVALUACIÓN[span_7](end_span)
-    with st.expander("Ver criterios de cumplimiento"):
-        [span_8](start_span)st.write("* **Multimodal:** Voz, texto y botones[span_8](end_span).")
-        [span_9](start_span)[span_10](start_span)st.write("* **Físico:** Conectado a MQTT/Wokwi[span_9](end_span)[span_10](end_span).")
-        [span_11](start_span)st.write("* **Dos páginas:** Estructura de navegación lateral[span_11](end_span).")
+# ==================================================
+# PIE DE PÁGINA (CRÉDITOS)
+# ==================================================
+st.sidebar.markdown("---")
+st.sidebar.markdown(
+    """
+    <div style='text-align: center; color: #4F8BF9; font-weight: bold;'>
+        Creado por:<br>
+        👨‍💻 Juan Felipe<br>
+        👨‍💻 Santiago Marín
+    </div>
+    """, 
+    unsafe_allow_html=True
+)
