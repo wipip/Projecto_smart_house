@@ -62,7 +62,10 @@ def on_message(client, userdata, message):
 # CLIENTE MQTT
 # ==================================================
 
-client = paho.Client("SmartCaseAI")
+client = paho.Client(
+    client_id="SmartCaseAI",
+    protocol=paho.MQTTv311
+)
 
 client.on_connect = on_connect
 client.on_message = on_message
