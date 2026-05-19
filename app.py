@@ -8,7 +8,7 @@ from keras.models import load_model
 from PIL import Image
 
 # ==========================================
-# BOKEH (VERSIÓN CORRECTA)
+# BOKEH
 # ==========================================
 
 from bokeh.models.widgets import Button
@@ -33,7 +33,7 @@ BROKER = "157.230.214.127"
 PORT = 1883
 
 # ==========================================
-# ESTADO GLOBAL
+# MQTT + ESTADO GLOBAL
 # ==========================================
 
 if "client" not in st.session_state:
@@ -69,7 +69,7 @@ def on_message(client, userdata, message):
         print(e)
 
 # ==========================================
-# CONECTAR MQTT
+# CONEXIÓN MQTT
 # ==========================================
 
 if not st.session_state.connected:
@@ -93,10 +93,10 @@ if not st.session_state.connected:
 
     except Exception as e:
 
-        st.error(f"MQTT Error: {e}")
+        st.error(f"Error MQTT: {e}")
 
 # ==========================================
-# CARGAR IA
+# CARGAR MODELO IA
 # ==========================================
 
 @st.cache_resource
@@ -106,11 +106,13 @@ def cargar_modelo():
 
 model = cargar_modelo()
 
+# ==========================================
+# CLASES DEL MODELO
+# ==========================================
+
 class_names = [
-    "Juan",
-    "Peinilla",
-    "Nada",
-    "Celular"
+    "Abrir puerta",
+    "Denegar acceso"
 ]
 
 # ==========================================
@@ -126,7 +128,7 @@ pagina = st.sidebar.radio(
     [
         "📊 Dashboard",
         "🎙️ Voz y Texto",
-        "📷 IA Visual"
+        "📷 Reconocimiento Facial IA"
     ]
 )
 
@@ -164,7 +166,7 @@ if pagina == "📊 Dashboard":
 
     b1, b2 = st.columns(2)
 
-    if b1.button("🚨 Activar"):
+    if b1.button("🚨 Activar Alarma"):
 
         st.session_state.client.publish(
 
@@ -177,7 +179,7 @@ if pagina == "📊 Dashboard":
 
         st.success("Alarma activada")
 
-    if b2.button("🟢 Desactivar"):
+    if b2.button("🟢 Desactivar Alarma"):
 
         st.session_state.client.publish(
 
@@ -201,13 +203,11 @@ elif pagina == "🎙️ Voz y Texto":
     st.write("Presiona el botón y habla")
 
     # ======================================
-    # BOTÓN
+    # BOTÓN VOZ
     # ======================================
 
     stt_button = Button(
-
         label="🎤 Hablar",
-
         width=200
     )
 
@@ -284,13 +284,11 @@ elif pagina == "🎙️ Voz y Texto":
             st.success(f"Detectado: {voz}")
 
             if (
-
                 "activar" in voz
                 or
                 "encender" in voz
                 or
                 "prender" in voz
-
             ):
 
                 st.session_state.client.publish(
@@ -305,11 +303,9 @@ elif pagina == "🎙️ Voz y Texto":
                 st.success("Comando ON enviado")
 
             elif (
-
                 "apagar" in voz
                 or
                 "desactivar" in voz
-
             ):
 
                 st.session_state.client.publish(
@@ -322,10 +318,6 @@ elif pagina == "🎙️ Voz y Texto":
                 )
 
                 st.warning("Comando OFF enviado")
-
-            else:
-
-                st.error("Comando no reconocido")
 
     # ======================================
     # TEXTO
@@ -374,12 +366,12 @@ elif pagina == "🎙️ Voz y Texto":
             st.warning("OFF enviado")
 
 # ==========================================
-# IA VISUAL
+# IA FACIAL
 # ==========================================
 
-elif pagina == "📷 IA Visual":
+elif pagina == "📷 Reconocimiento Facial IA":
 
-    st.title("📷 Reconocimiento IA")
+    st.title("📷 Reconocimiento Facial IA")
 
     foto = st.camera_input(
         "Tomar Foto"
@@ -390,6 +382,10 @@ elif pagina == "📷 IA Visual":
         img = Image.open(foto)
 
         st.image(img, width=300)
+
+        # ======================================
+        # PREPROCESAMIENTO
+        # ======================================
 
         img = img.resize((224, 224))
 
@@ -408,6 +404,10 @@ elif pagina == "📷 IA Visual":
 
         data[0] = normalized_image_array
 
+        # ======================================
+        # PREDICCIÓN IA
+        # ======================================
+
         prediction = model.predict(data)
 
         index = np.argmax(prediction)
@@ -422,38 +422,44 @@ elif pagina == "📷 IA Visual":
             f"Probabilidad: {confidence:.2f}"
         )
 
-        # ==================================
-        # MQTT AUTOMÁTICO
-        # ==================================
+        # ======================================
+        # CONTROL PUERTA
+        # ======================================
 
-        if clase == "Juan" and confidence > 0.7:
+        if (
+            clase == "Abrir puerta"
+            and confidence > 0.80
+        ):
 
             st.session_state.client.publish(
 
                 "cmqtt_s",
 
                 json.dumps({
-                    "Act1": "OFF"
+                    "door": "OPEN"
                 })
             )
 
             st.success(
-                "Juan detectado → OFF"
+                "✅ Acceso permitido"
             )
 
-        elif clase == "Celular" and confidence > 0.7:
+        elif (
+            clase == "Denegar acceso"
+            and confidence > 0.80
+        ):
 
             st.session_state.client.publish(
 
                 "cmqtt_s",
 
                 json.dumps({
-                    "Act1": "ON"
+                    "door": "DENY"
                 })
             )
 
-            st.warning(
-                "Celular detectado → ON"
+            st.error(
+                "🚨 Acceso denegado"
             )
 
 # ==========================================
