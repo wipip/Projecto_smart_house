@@ -1,2 +1,2 @@
-0 Arriba
-1 Abajo
+0 Abrir puerta
+1 Acceso denegado
