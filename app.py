@@ -49,8 +49,7 @@ def on_message(client, userdata, message):
     try:
         payload = message.payload.decode("utf-8")
         st.session_state.sensor_data = json.loads(payload)
-        # Fuerza a Streamlit a actualizar la vista al recibir datos nuevos
-        st.rerun() 
+        # Fuerza a Streamlit a actualizar la vista al recibir datos nuevos 
     except Exception as e:
         print(f"Error en recepción MQTT: {e}")
 
@@ -103,17 +102,21 @@ pagina = st.sidebar.radio(
 # ==========================================
 if pagina == "📊 Dashboard":
     st.title("🏠 SmartCase Dashboard")
+    
+    @st.fragment(run_every=2)
+    def mostrar_metricas():
+        data = st.session_state.sensor_data
 
-    data = st.session_state.sensor_data
-
-    c1, c2, c3 = st.columns(3)
-    c1.metric("Temperatura", f"{data['temperature']} °C")
-    c2.metric("Humedad", f"{data['humidity']} %")
-    c3.metric(
-        "Movimiento",
-        "⚠️ Detectado" if data["motion"] == 1 else "✅ Seguro"
+        c1, c2, c3 = st.columns(3)
+        c1.metric("Temperatura", f"{data['temperature']} °C")
+        c2.metric("Humedad", f"{data['humidity']} %")
+        c3.metric(
+            "Movimiento",
+            "⚠️ Detectado" if data["motion"] == 1 else "✅ Seguro"
     )
 
+    mostrar_metricas()
+    
     st.markdown("---")
 
     b1, b2 = st.columns(2)
