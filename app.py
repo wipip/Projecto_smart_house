@@ -103,19 +103,21 @@ pagina = st.sidebar.radio(
 if pagina == "📊 Dashboard":
     st.title("🏠 SmartCase Dashboard")
     
-    @st.fragment(run_every=2)
-    def mostrar_metricas():
-        data = st.session_state.sensor_data
+    # Importante: requiere hacer 'pip install streamlit-autorefresh'
+    from streamlit_autorefresh import st_autorefresh
+    
+    # Refresca el dashboard cada 2 segundos para leer el estado de MQTT
+    st_autorefresh(interval=2000, key="datarefresh")
 
-        c1, c2, c3 = st.columns(3)
-        c1.metric("Temperatura", f"{data['temperature']} °C")
-        c2.metric("Humedad", f"{data['humidity']} %")
-        c3.metric(
-            "Movimiento",
-            "⚠️ Detectado" if data["motion"] == 1 else "✅ Seguro"
+    data = st.session_state.sensor_data
+
+    c1, c2, c3 = st.columns(3)
+    c1.metric("Temperatura", f"{data['temperature']} °C")
+    c2.metric("Humedad", f"{data['humidity']} %")
+    c3.metric(
+        "Movimiento",
+        "⚠️ Detectado" if data["motion"] == 1 else "✅ Seguro"
     )
-
-    mostrar_metricas()
     
     st.markdown("---")
 
