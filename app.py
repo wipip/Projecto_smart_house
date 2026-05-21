@@ -23,69 +23,106 @@ st.set_page_config(
 )
 
 # ==========================================
-# CONFIGURACIÓN MQTT UNIFICADA
+# CONFIGURACIÓN MQTT UNIFICADA (Paho 1.6.1)
 # ==========================================
 BROKER = "broker.mqttdashboard.com"
 PORT = 1883
-TOPIC_RECEIVE = "Sensor/THP3"
+TOPIC_RECEIVE = "Sensor/THP3"  # Su tópico asignado actualizado
 TOPIC_SEND = "cmqtt_s"
 
-# Mantener los datos estables en la sesión
+# Inicializar variables de estado en sesión para evitar pérdidas al cambiar de menú
 if 'sensor_data' not in st.session_state:
     st.session_state.sensor_data = {"temperature": 0.0, "humidity": 0.0, "motion": 0}
 
 def obtener_datos_wokwi_sincrono():
-    """Función síncrona controlada por tiempo aislada para el botón"""
-    message_received = {"received": False, "payload": None}
+    """Captura datos de forma síncrona imprimiendo la carga útil recibida en la consola"""
+    control_box = {"received": False, "payload": None}
     
     def on_message(client, userdata, message):
         try:
-            payload = json.loads(message.payload.decode())
-            message_received["payload"] = payload
-            message_received["received"] = True
-            st.write(payload)
-        except:
-            pass
+            cadena_texto = message.payload.decode('utf-8')
+            # 🟢 PRINT DE CONSOLA: Muestra en bruto el texto tal cual llega del broker
+            print(f"\n[MQTT INCOMING] Mensaje recibido en bruto en el tópico {message.topic}:")
+            print(f"👉 {cadena_texto}")
+            
+            payload = json.loads(cadena_texto)
+            control_box["payload"] = payload
+            control_box["received"] = True
+        except Exception as e:
+            print(f"❌ Error procesando el JSON entrante de MQTT: {e}")
             
     try:
-        # ID único dinámico por cada clic para evitar conflictos de sesión en el Broker
-        client_id = f"st_client_fetch_{int(time.time())}"
-        client = mqtt.Client(client_id=client_id)
+        # Generar un ID aleatorio único para esta consulta momentánea
+        client_id = f"smarthouse_fetch_{int(time.time())}"
+        
+        # Sintaxis nativa y limpia para paho-mqtt==1.6.1
+        client = mqtt.Client(client_id=client_id, clean_session=True)
         client.on_message = on_message
+        
         client.connect(BROKER, PORT, 60)
         client.subscribe(TOPIC_RECEIVE)
+        
+        # Iniciar ciclo de escucha asíncrono temporal
         client.loop_start()
         
-        # Espera controlada de hasta 1.5 segundos para pescar el dato en vivo de Wokwi
+        # Ventana de espera controlada de hasta 1.5 segundos
         timeout = time.time() + 1.5
-        while not message_received["received"] and time.time() < timeout:
-            time.sleep(0.05)
+        while not control_box["received"] and time.time() < timeout:
+            time.sleep(0.02)
             
+        # Desconexión inmediata para liberar el canal e impedir saturación en Streamlit
         client.loop_stop()
         client.disconnect()
         
-        if message_received["received"] and message_received["payload"]:
-            raw_data = message_received["payload"]
+        if control_box["received"] and control_box["payload"]:
+            raw_data = control_box["payload"]
+            
+            # Mapeo y conversión estricta a tipos numéricos nativos
             st.session_state.sensor_data = {
-                "temperature": raw_data.get("temperature", 0.0),
-                "humidity": raw_data.get("humidity", 0.0),
-                "motion": raw_data.get("motion", 0)
+                "temperature": float(raw_data.get("temperature", 0.0)),
+                "humidity": float(raw_data.get("humidity", 0.0)),
+                "motion": int(raw_data.get("motion", 0))
             }
+            
+            # 🟢 PRINT DE CONSOLA: Muestra los datos ya procesados y listos para la interfaz
+            print("[STREAMLIT SESIÓN] Variables mapeadas con éxito en st.session_state:")
+            print(f"   ├─ Temp: {st.session_state.sensor_data['temperature']} °C")
+            print(f"   ├─ Hum:  {st.session_state.sensor_data['humidity']} %")
+            print(f"   └─ Mov:  {st.session_state.sensor_data['motion']}\n")
             return True
+            
+        print("⚠️ Advertencia: Se agotó el tiempo de espera (Timeout) sin recibir datos válidos de Wokwi.")
         return False
+        
     except Exception as e:
-        st.error(f"Error de conexión con el Broker: {e}")
+        print(f"🚨 Error crítico de red en la función síncrona MQTT: {e}")
         return False
 
-# Cliente persistente en sesión exclusivo para el ENVÍO de comandos hacia Wokwi
+# Cliente persistente en sesión exclusivo para el ENVÍO de comandos hacia Wokwi (Paho 1.x)
 if "client" not in st.session_state:
     try:
-        client_id_send = f"st_client_send_{int(time.time())}"
-        st.session_state.client = mqtt.Client(client_id=client_id_send)
+        client_id_send = f"smarthouse_send_{int(time.time())}"
+        st.session_state.client = mqtt.Client(client_id=client_id_send, clean_session=True)
         st.session_state.client.connect(BROKER, PORT, 60)
         st.session_state.client.loop_start()
+        print("🚀 Canal persistente de comandos MQTT inicializado con éxito (Paho 1.6.1).")
     except Exception as e:
-        st.error(f"Error en pasarela de salida: {e}")
+        st.error(f"Error en pasarela de comandos de salida: {e}")
+
+def asegurar_envio_mqtt(topic, payload_dict):
+    """Verifica el estado de conexión del cliente antes de inyectar datos en la red"""
+    try:
+        # Si por fluctuaciones de red el cliente persistente se cae, se fuerza una reconexión inmediata
+        if not st.session_state.client.is_connected():
+            print("🔗 Detectada desconexión en el canal de salida. Reconectando...")
+            st.session_state.client.reconnect()
+            
+        payload_json = json.dumps(payload_dict)
+        st.session_state.client.publish(topic, payload_json)
+        # 🟢 PRINT DE CONSOLA: Registra los datos salientes generados por botones, voz o IA
+        print(f"[MQTT OUTGOING] Comando enviado a -> {topic}: {payload_json}")
+    except Exception as e:
+        print(f"❌ Fallo al transmitir comando MQTT de salida: {e}")
 
 # ==========================================
 # CARGAR MODELO IA
@@ -125,7 +162,6 @@ if pagina == "📊 Dashboard":
     st.title("🏠 SmartHouse Dashboard")
     st.write("Gestiona la recepción de datos y actuadores de la casa inteligente.")
     
-    # 1. BOTÓN DE PETICIÓN MANUAL (Reemplaza por completo el molesto loop automático)
     if st.button("🔄 Recibir datos del Wokwi", use_container_width=True):
         with st.spinner("Conectando al canal seguro y extrayendo telemetría..."):
             exito = obtener_datos_wokwi_sincrono()
@@ -136,7 +172,6 @@ if pagina == "📊 Dashboard":
 
     st.markdown("---")
 
-    # Muestra los datos retenidos de la última consulta exitosa
     data = st.session_state.sensor_data
 
     c1, c2, c3 = st.columns(3)
@@ -152,17 +187,11 @@ if pagina == "📊 Dashboard":
     b1, b2 = st.columns(2)
 
     if b1.button("🚨 Activar Alarma", use_container_width=True):
-        st.session_state.client.publish(
-            TOPIC_SEND,
-            json.dumps({"Act1": "ON"})
-        )
+        asegurar_envio_mqtt(TOPIC_SEND, {"Act1": "ON"})
         st.success("Alarma activada")
 
     if b2.button("🟢 Desactivar Alarma", use_container_width=True):
-        st.session_state.client.publish(
-            TOPIC_SEND,
-            json.dumps({"Act1": "OFF"})
-        )
+        asegurar_envio_mqtt(TOPIC_SEND, {"Act1": "OFF"})
         st.warning("Alarma desactivada")
 
 # ==========================================
@@ -213,17 +242,11 @@ elif pagina == "🎙️ Voz y Texto":
             st.success(f"Detectado: {voz}")
 
             if "activar" in voz or "encender" in voz or "prender" in voz:
-                st.session_state.client.publish(
-                    TOPIC_SEND,
-                    json.dumps({"VozAct": "ON"})
-                )
+                asegurar_envio_mqtt(TOPIC_SEND, {"VozAct": "ON"})
                 st.success("Comando enviado: Encender LED Voz")
 
             elif "apagar" in voz or "desactivar" in voz:
-                st.session_state.client.publish(
-                    TOPIC_SEND,
-                    json.dumps({"VozAct": "OFF"})
-                )
+                asegurar_envio_mqtt(TOPIC_SEND, {"VozAct": "OFF"})
                 st.warning("Comando enviado: Apagar LED Voz")
 
     st.markdown("---")
@@ -231,17 +254,11 @@ elif pagina == "🎙️ Voz y Texto":
 
     if st.button("Enviar Texto"):
         if "activar" in comando or "encender" in comando:
-            st.session_state.client.publish(
-                TOPIC_SEND,
-                json.dumps({"VozAct": "ON"})
-            )
+            asegurar_envio_mqtt(TOPIC_SEND, {"VozAct": "ON"})
             st.success("Comando de texto enviado: LED Voz ON")
 
         elif "apagar" in comando or "desactivar" in comando:
-            st.session_state.client.publish(
-                TOPIC_SEND,
-                json.dumps({"VozAct": "OFF"})
-            )
+            asegurar_envio_mqtt(TOPIC_SEND, {"VozAct": "OFF"})
             st.warning("Comando de texto enviado: LED Voz OFF")
 
 # ==========================================
@@ -272,17 +289,11 @@ elif pagina == "📷 Reconocimiento Facial IA":
         st.write(f"Probabilidad: {confidence:.2f}")
 
         if clase == "Abrir puerta" and confidence > 0.80:
-            st.session_state.client.publish(
-                TOPIC_SEND,
-                json.dumps({"door": "OPEN"})
-            )
+            asegurar_envio_mqtt(TOPIC_SEND, {"door": "OPEN"})
             st.success("✅ Acceso permitido")
 
         elif clase == "Denegar acceso" and confidence > 0.80:
-            st.session_state.client.publish(
-                TOPIC_SEND,
-                json.dumps({"door": "DENY"})
-            )
+            asegurar_envio_mqtt(TOPIC_SEND, {"door": "DENY"})
             st.error("🚨 Acceso denegado")
 
 # ==========================================
