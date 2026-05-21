@@ -37,15 +37,37 @@ PORT = 1883
 # MQTT + ESTADO GLOBAL
 # ==========================================
 if "client" not in st.session_state:
-    st.session_state.client = paho.Client(
-        client_id=f"SmartCaseAI_{time.time()}"
-    )
+    # Usar la API Callback estándar de Paho MQTT
+    st.session_state.client = paho.Client(callback_api_version=paho.CallbackAPIVersion.VERSION1)
     st.session_state.sensor_data = {
         "temperature": 0,
         "humidity": 0,
         "motion": 0
     }
     st.session_state.connected = False
+
+def on_message(client, userdata, message):
+    try:
+        payload = message.payload.decode("utf-8")
+        # Guardamos directamente en el estado global para que persista
+        st.session_state.sensor_data = json.loads(payload)
+    except Exception as e:
+        pass
+
+if not st.session_state.connected:
+    try:
+        st.session_state.client.on_message = on_message
+        st.session_state.client.connect(BROKER, PORT, 60)
+        st.session_state.client.subscribe("smartcase/sensors")
+        # loop_start crea un hilo persistente que sobrevive a los refrescos
+        st.session_state.client.loop_start()
+        st.session_state.connected = True
+    except Exception as e:
+        st.error(f"Error de conexión MQTT: {e}")
+
+# Esta pequeña instrucción obliga al cliente de red a revisar si hay datos nuevos acumulados en el buffer
+if st.session_state.connected:
+    st.session_state.client.loop(timeout=0.1)
 
 # ==========================================
 # CALLBACK MQTT
