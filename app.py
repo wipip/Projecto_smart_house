@@ -8,6 +8,11 @@ from keras.models import load_model
 from PIL import Image
 
 # ==========================================
+# REFRESH AUTOMÁTICO
+# ==========================================
+from streamlit_autorefresh import st_autorefresh
+
+# ==========================================
 # BOKEH
 # ==========================================
 from bokeh.models.widgets import Button
@@ -43,13 +48,12 @@ if "client" not in st.session_state:
     st.session_state.connected = False
 
 # ==========================================
-# CALLBACK MQTT (Modificado para Autorefresh)
+# CALLBACK MQTT
 # ==========================================
 def on_message(client, userdata, message):
     try:
         payload = message.payload.decode("utf-8")
         st.session_state.sensor_data = json.loads(payload)
-        # Fuerza a Streamlit a actualizar la vista al recibir datos nuevos 
     except Exception as e:
         print(f"Error en recepción MQTT: {e}")
 
@@ -103,10 +107,7 @@ pagina = st.sidebar.radio(
 if pagina == "📊 Dashboard":
     st.title("🏠 SmartCase Dashboard")
     
-    # Importante: requiere hacer 'pip install streamlit-autorefresh'
-    from streamlit_autorefresh import st_autorefresh
-    
-    # Refresca el dashboard cada 2 segundos para leer el estado de MQTT
+    # Refresca la UI cada 2 segundos de forma segura
     st_autorefresh(interval=2000, key="datarefresh")
 
     data = st.session_state.sensor_data
@@ -138,10 +139,10 @@ if pagina == "📊 Dashboard":
         st.warning("Alarma desactivada")
 
 # ==========================================
-# VOZ + TEXTO
+# VOZ + TEXTO (Modificado Exclusivo Pin 5)
 # ==========================================
 elif pagina == "🎙️ Voz y Texto":
-    st.title("🎙️ Control por Voz")
+    st.title("🎙️ Control por Voz (LED Pin 5)")
     st.write("Presiona el botón y habla")
 
     # Botón Voz
@@ -180,7 +181,7 @@ elif pagina == "🎙️ Voz y Texto":
         debounce_time=0
     )
 
-    # Resultado Voz
+    # Resultado Voz -> Envía la clave "VozAct"
     if result:
         if "GET_TEXT" in result:
             voz = result.get("GET_TEXT").lower()
@@ -189,18 +190,18 @@ elif pagina == "🎙️ Voz y Texto":
             if "activar" in voz or "encender" in voz or "prender" in voz:
                 st.session_state.client.publish(
                     "cmqtt_s",
-                    json.dumps({"Act1": "ON"})
+                    json.dumps({"VozAct": "ON"})
                 )
-                st.success("Comando ON enviado")
+                st.success("Comando enviado: Encender LED Voz")
 
             elif "apagar" in voz or "desactivar" in voz:
                 st.session_state.client.publish(
                     "cmqtt_s",
-                    json.dumps({"Act1": "OFF"})
+                    json.dumps({"VozAct": "OFF"})
                 )
-                st.warning("Comando OFF enviado")
+                st.warning("Comando enviado: Apagar LED Voz")
 
-    # Entrada de Texto
+    # Entrada de Texto -> Envía la clave "VozAct"
     st.markdown("---")
     comando = st.text_input("Escribe un comando:").lower()
 
@@ -208,16 +209,16 @@ elif pagina == "🎙️ Voz y Texto":
         if "activar" in comando or "encender" in comando:
             st.session_state.client.publish(
                 "cmqtt_s",
-                json.dumps({"Act1": "ON"})
+                json.dumps({"VozAct": "ON"})
             )
-            st.success("ON enviado")
+            st.success("Comando de texto enviado: LED Voz ON")
 
         elif "apagar" in comando or "desactivar" in comando:
             st.session_state.client.publish(
                 "cmqtt_s",
-                json.dumps({"Act1": "OFF"})
+                json.dumps({"VozAct": "OFF"})
             )
-            st.warning("OFF enviado")
+            st.warning("Comando de texto enviado: LED Voz OFF")
 
 # ==========================================
 # IA FACIAL
