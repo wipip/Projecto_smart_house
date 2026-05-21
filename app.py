@@ -23,12 +23,11 @@ st.set_page_config(
 )
 
 # ==========================================
-# CONFIGURACIÓN MQTT (Del código funcional)
+# CONFIGURACIÓN MQTT (Idéntica a su app receptora)
 # ==========================================
 if 'sensor_data' not in st.session_state:
     st.session_state.sensor_data = None
 
-# Tópico predeterminado de envío de comandos
 TOPIC_SEND = "cmqtt_s"
 
 def get_mqtt_message(broker, port, topic, client_id):
@@ -46,14 +45,13 @@ def get_mqtt_message(broker, port, topic, client_id):
             message_received["received"] = True
             
     try:
-        # Paho 1.6.1 limpia sesión por defecto
         client = mqtt.Client(client_id=client_id)
         client.on_message = on_message
         client.connect(broker, port, 60)
         client.subscribe(topic)
         client.loop_start()
         
-        # Esperar máximo 5 segundos (su configuración de timout exacta)
+        # Esperar máximo 5 segundos
         timeout = time.time() + 5
         while not message_received["received"] and time.time() < timeout:
             time.sleep(0.1)
@@ -61,8 +59,8 @@ def get_mqtt_message(broker, port, topic, client_id):
         client.loop_stop()
         client.disconnect()
         
-        # PRINT EN CONSOLA (Para control de logs de ustedes)
-        print(f"\n[MQTT FETCH] Tópico: {topic} | Payload Recibido: {message_received['payload']}")
+        # Log en consola para verificación de los datos reales recibidos
+        print(f"\n[MQTT RECEPTOR] Datos crudos que entraron: {message_received['payload']}")
         
         return message_received["payload"]
         
@@ -72,12 +70,10 @@ def get_mqtt_message(broker, port, topic, client_id):
 # Cliente persistente en sesión exclusivo para el ENVÍO de comandos hacia Wokwi
 if "client" not in st.session_state:
     try:
-        # Usamos los parámetros por defecto de su sidebar para la pasarela de salida
         client_id_send = "streamlit_client_send"
         st.session_state.client = mqtt.Client(client_id=client_id_send)
         st.session_state.client.connect("broker.mqttdashboard.com", 1883, 60)
         st.session_state.client.loop_start()
-        print("🚀 Canal persistente de salida MQTT inicializado.")
     except Exception as e:
         st.error(f"Error en pasarela de salida: {e}")
 
@@ -128,43 +124,46 @@ with st.sidebar:
                               help='Identificador único para este cliente')
 
 # ==========================================
-# DASHBOARD
+# DASHBOARD (Reescrito EXACTAMENTE como el receptor exitoso)
 # ==========================================
 if pagina == "📊 Dashboard":
     st.title("🏠 SmartHouse Dashboard")
     st.write("Gestiona la recepción de datos y actuadores de la casa inteligente.")
     
-    # Botón para obtener datos (Idéntico a su código funcional)
+    # Botón idéntico a su aplicación funcional
     if st.button('🔄 recibir datos del wokwi/arduino', use_container_width=True):
         with st.spinner('Conectando al broker y esperando datos...'):
             sensor_data = get_mqtt_message(broker, int(port), topic, client_id)
             st.session_state.sensor_data = sensor_data
 
-    # Mostrar resultados mapeados
+    # Renderizado idéntico y dinámico basado en la estructura que viene de Wokwi
     if st.session_state.sensor_data:
-        st.markdown("---")
+        st.divider()
+        st.subheader('📊 Datos Recibidos')
+        
         data = st.session_state.sensor_data
         
+        # Verificar si hay error
         if isinstance(data, dict) and 'error' in data:
             st.error(f"❌ Error de conexión: {data['error']}")
         else:
             st.success('✅ Datos recibidos correctamente')
             
-            # Si el JSON viene estructurado como diccionario, renderizar métricas
+            # Si es un diccionario (JSON), se adapta dinámicamente a "Temp", "Hum", etc.
             if isinstance(data, dict):
                 cols = st.columns(len(data))
                 for i, (key, value) in enumerate(data.items()):
                     with cols[i]:
-                        # Traducir etiquetas visuales de cara al usuario manteniendo la llave nativa
-                        label_vista = "Temperatura" if key == "temperature" else ("Humedad" if key == "humidity" else key.capitalize())
-                        unidad = "°C" if key == "temperature" else ("%" if key == "humidity" else "")
-                        st.metric(label=label_vista, value=f"{value} {unidad}")
+                        st.metric(label=key, value=value)
                 
+                # Desplegable para ver el JSON completo en bruto
                 with st.expander('Ver JSON completo'):
                     st.json(data)
             else:
+                # Si no es diccionario, mostrar como texto plano
                 st.code(data)
 
+    # Bloque de actuadores original de la alarma (se mantiene intacto abajo)
     st.markdown("---")
     st.subheader("🎮 Control de Actuadores")
     b1, b2 = st.columns(2)
@@ -178,7 +177,7 @@ if pagina == "📊 Dashboard":
         st.warning("Alarma desactivada")
 
 # ==========================================
-# VOZ + TEXTO
+# VOZ + TEXTO (Totalmente quieto)
 # ==========================================
 elif pagina == "🎙️ Voz y Texto":
     st.title("🎙️ Control por Voz (LED Pin 5)")
@@ -242,7 +241,7 @@ elif pagina == "🎙️ Voz y Texto":
             st.warning("Comando de texto enviado: LED Voz OFF")
 
 # ==========================================
-# IA FACIAL
+# IA FACIAL (Totalmente quieto)
 # ==========================================
 elif pagina == "📷 Reconocimiento Facial IA":
     st.title("📷 Reconocimiento Facial IA")
