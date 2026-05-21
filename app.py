@@ -32,7 +32,7 @@ st.set_page_config(
 # ==========================================
 BROKER = "broker.mqttdashboard.com"
 PORT = 1883
-TOPIC_RECEIVE = "Sensor/THP2"
+TOPIC_RECEIVE = "Sensor/THP3"
 TOPIC_SEND = "cmqtt_s"
 
 if 'sensor_data' not in st.session_state:
