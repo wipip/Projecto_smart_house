@@ -1,301 +1,171 @@
 import streamlit as st
-import paho.mqtt.client as paho
+import paho.mqtt.client as mqtt
 import json
-import time
-import numpy as np
-
-from keras.models import load_model
-from PIL import Image
-
-# ==========================================
-# REFRESH AUTOMÁTICO
-# ==========================================
 from streamlit_autorefresh import st_autorefresh
 
-# ==========================================
-# BOKEH
-# ==========================================
-from bokeh.models.widgets import Button
-from bokeh.models import CustomJS
-from streamlit_bokeh_events import streamlit_bokeh_events
-
-# ==========================================
-# CONFIG
-# ==========================================
+# ==============================================================================
+# 1. CONFIGURACIÓN DE LA PÁGINA Y AUTO-REFRESCO
+# ==============================================================================
 st.set_page_config(
-    page_title="SmartCase AI",
+    page_title="SmartCase Dashboard",
+    page_icon="🏠",
     layout="wide"
 )
 
-# ==========================================
-# MQTT CONFIG
-# ==========================================
-BROKER = "157.230.214.127"
-PORT = 1883
+# Forzar a Streamlit a actualizar la interfaz de forma silenciosa cada 2 segundos.
+# Esto asegura que los datos que guarda MQTT en el session_state se pinten en vivo.
+st_autorefresh(interval=2000, key="mqtt_data_refresh")
 
-# ==========================================
-# MQTT + ESTADO GLOBAL
-# ==========================================
-if "client" not in st.session_state:
-    # Usar la API Callback estándar de Paho MQTT
-    st.session_state.client = paho.Client(callback_api_version=paho.CallbackAPIVersion.VERSION1)
-    st.session_state.sensor_data = {
-        "temperature": 0,
-        "humidity": 0,
-        "motion": 0
-    }
-    st.session_state.connected = False
+# ==============================================================================
+# 2. INICIALIZACIÓN DEL ESTADO GLOBAL (SESSION STATE)
+# ==============================================================================
+# Creamos las variables de memoria interna si es la primera vez que corre la app
+if "temp" not in st.session_state:
+    st.session_state.temp = 0.0
+if "hum" not in st.session_state:
+    st.session_state.hum = 0.0
+if "motion" not in st.session_state:
+    st.session_state.motion = 0
+if "estado_alarma" not in st.session_state:
+    st.session_state.estado_alarma = "OFF"
+if "estado_voz" not in st.session_state:
+    st.session_state.estado_voz = "OFF"
+
+# ==============================================================================
+# 3. FUNCIONES DE RESPALDO (CALLBACKS) DE MQTT
+# ==============================================================================
+def on_connect(client, userdata, flags, rc):
+    if rc == 0:
+        print("Conectado exitosamente al Broker MQTT")
+        # Nos suscribimos al canal de salida de sensores de Wokwi
+        client.subscribe("smartcase/sensors")
+    else:
+        print(f"Error de conexión al broker. Código: {rc}")
 
 def on_message(client, userdata, message):
     try:
-        payload = message.payload.decode("utf-8")
-        # Guardamos directamente en el estado global para que persista
-        st.session_state.sensor_data = json.loads(payload)
+        # Decodificamos el buffer de texto plano enviado por el ESP32
+        payload_str = message.payload.decode("utf-8")
+        datos = json.loads(payload_str)
+        
+        # Guardamos los valores reales del JSON dentro de la memoria de Streamlit
+        st.session_state.temp = float(datos.get("temperature", 0.0))
+        st.session_state.hum = float(datos.get("humidity", 0.0))
+        st.session_state.motion = int(datos.get("motion", 0))
     except Exception as e:
-        pass
+        print(f"Error al procesar el mensaje JSON entrante: {e}")
 
-if not st.session_state.connected:
-    try:
-        st.session_state.client.on_message = on_message
-        st.session_state.client.connect(BROKER, PORT, 60)
-        st.session_state.client.subscribe("smartcase/sensors")
-        # loop_start crea un hilo persistente que sobrevive a los refrescos
-        st.session_state.client.loop_start()
-        st.session_state.connected = True
-    except Exception as e:
-        st.error(f"Error de conexión MQTT: {e}")
-
-# Esta pequeña instrucción obliga al cliente de red a revisar si hay datos nuevos acumulados en el buffer
-if st.session_state.connected:
-    st.session_state.client.loop(timeout=0.1)
-
-# ==========================================
-# CALLBACK MQTT
-# ==========================================
-def on_message(client, userdata, message):
-    try:
-        payload = message.payload.decode("utf-8")
-        st.session_state.sensor_data = json.loads(payload)
-    except Exception as e:
-        print(f"Error en recepción MQTT: {e}")
-
-# ==========================================
-# CONEXIÓN MQTT
-# ==========================================
-if not st.session_state.connected:
-    try:
-        st.session_state.client.on_message = on_message
-        st.session_state.client.connect(BROKER, PORT)
-        st.session_state.client.subscribe("smartcase/sensors")
-        st.session_state.client.loop_start()
-        st.session_state.connected = True
-    except Exception as e:
-        st.error(f"Error MQTT: {e}")
-
-# ==========================================
-# CARGAR MODELO IA
-# ==========================================
-@st.cache_resource
-def cargar_modelo():
-    return load_model("keras_model.h5")
-
-model = cargar_modelo()
-
-# ==========================================
-# CLASES DEL MODELO
-# ==========================================
-class_names = [
-    "Abrir puerta",
-    "Denegar acceso"
-]
-
-# ==========================================
-# SIDEBAR
-# ==========================================
-st.sidebar.title("🧭 Menú")
-
-pagina = st.sidebar.radio(
-    "Selecciona:",
-    [
-        "📊 Dashboard",
-        "🎙️ Voz y Texto",
-        "📷 Reconocimiento Facial IA"
-    ]
-)
-
-# ==========================================
-# DASHBOARD
-# ==========================================
-if pagina == "📊 Dashboard":
-    st.title("🏠 SmartCase Dashboard")
+# ==============================================================================
+# 4. ARRANQUE DEL CLIENTE MQTT ASÍNCRONO
+# ==============================================================================
+if "mqtt_client" not in st.session_state:
+    broker_ip = "157.230.214.127"
+    puerto = 1883
     
-    # Refresca la UI cada 2 segundos de forma segura
-    st_autorefresh(interval=2000, key="datarefresh")
-
-    data = st.session_state.sensor_data
-
-    c1, c2, c3 = st.columns(3)
-    c1.metric("Temperatura", f"{data['temperature']} °C")
-    c2.metric("Humedad", f"{data['humidity']} %")
-    c3.metric(
-        "Movimiento",
-        "⚠️ Detectado" if data["motion"] == 1 else "✅ Seguro"
-    )
+    nuevo_cliente = mqtt.Client()
+    nuevo_cliente.on_connect = on_connect
+    nuevo_cliente.on_message = on_message
     
-    st.markdown("---")
+    try:
+        nuevo_cliente.connect(broker_ip, puerto, 60)
+        # loop_start() abre un hilo independiente para que la web no se trabe
+        nuevo_cliente.loop_start()
+        # Almacenamos el cliente activo en el estado para reutilizarlo al enviar comandos
+        st.session_state.mqtt_client = nuevo_cliente
+    except Exception as e:
+        st.error(f"No se pudo conectar al servidor MQTT: {e}")
 
-    b1, b2 = st.columns(2)
+# ==============================================================================
+# 5. DISEÑO DE LA INTERFAZ VISUAL (DASHBOARD)
+# ==============================================================================
+st.title("🏠 Sistema de Control Residencial - SmartCase")
+st.markdown("Monitoreo de sensores en tiempo real y panel de control remoto.")
+st.divider()
 
-    if b1.button("🚨 Activar Alarma"):
-        st.session_state.client.publish(
-            "cmqtt_s",
-            json.dumps({"Act1": "ON"})
-        )
-        st.success("Alarma activada")
+# --- SECCIÓN A: TELEMETRÍA EN VIVO (MÉTRICAS) ---
+st.subheader("📊 Estado de los Sensores en Vivo (Wokwi)")
 
-    if b2.button("🟢 Desactivar Alarma"):
-        st.session_state.client.publish(
-            "cmqtt_s",
-            json.dumps({"Act1": "OFF"})
-        )
-        st.warning("Alarma desactivada")
+col1, col2, col3 = st.columns(3)
 
-# ==========================================
-# VOZ + TEXTO (Modificado Exclusivo Pin 5)
-# ==========================================
-elif pagina == "🎙️ Voz y Texto":
-    st.title("🎙️ Control por Voz (LED Pin 5)")
-    st.write("Presiona el botón y habla")
-
-    # Botón Voz
-    stt_button = Button(label="🎤 Hablar", width=200)
-    stt_button.js_on_event(
-        "button_click",
-        CustomJS(code="""
-        var recognition = new webkitSpeechRecognition();
-        recognition.continuous = false;
-        recognition.interimResults = false;
-        recognition.lang = 'es-ES';
-
-        recognition.onresult = function(e) {
-            var value = "";
-            for (var i = e.resultIndex; i < e.results.length; ++i) {
-                if (e.results[i].isFinal) {
-                    value += e.results[i][0].transcript;
-                }
-            }
-            if (value != "") {
-                document.dispatchEvent(
-                    new CustomEvent("GET_TEXT", {detail: value})
-                );
-            }
-        }
-        recognition.start();
-        """)
+with col1:
+    st.metric(
+        label="🌡️ Temperatura Ambiente", 
+        value=f"{st.session_state.temp:.2f} °C",
+        delta=None
     )
 
-    result = streamlit_bokeh_events(
-        stt_button,
-        events="GET_TEXT",
-        key="listen",
-        refresh_on_update=False,
-        override_height=75,
-        debounce_time=0
+with col2:
+    st.metric(
+        label="💧 Humedad Relativa", 
+        value=f"{st.session_state.hum:.2f} %",
+        delta=None
     )
 
-    # Resultado Voz -> Envía la clave "VozAct"
-    if result:
-        if "GET_TEXT" in result:
-            voz = result.get("GET_TEXT").lower()
-            st.success(f"Detectado: {voz}")
+with col3:
+    # Mostramos una alerta visual interactiva si el PIR se activa
+    if st.session_state.motion == 1:
+        st.error("🚨 ¡MOVIMIENTO DETECTADO EN LA CASA!")
+    else:
+        st.success("🟢 Zona Segura - Sin Actividad")
 
-            if "activar" in voz or "encender" in voz or "prender" in voz:
-                st.session_state.client.publish(
-                    "cmqtt_s",
-                    json.dumps({"VozAct": "ON"})
-                )
-                st.success("Comando enviado: Encender LED Voz")
+st.divider()
 
-            elif "apagar" in voz or "desactivar" in voz:
-                st.session_state.client.publish(
-                    "cmqtt_s",
-                    json.dumps({"VozAct": "OFF"})
-                )
-                st.warning("Comando enviado: Apagar LED Voz")
+# --- SECCIÓN B: PANEL DE CONTROL DE ACTUADORES (ENVIAR COMANDOS) ---
+st.subheader("🎛️ Panel de Mandos y Actuadores")
+st.markdown("Los botones envían señales JSON directamente hacia el canal `cmqtt_s` de Wokwi.")
 
-    # Entrada de Texto -> Envía la clave "VozAct"
-    st.markdown("---")
-    comando = st.text_input("Escribe un comando:").lower()
+col_btn1, col_btn2, col_btn3 = st.columns(3)
 
-    if st.button("Enviar Texto"):
-        if "activar" in comando or "encender" in comando:
-            st.session_state.client.publish(
-                "cmqtt_s",
-                json.dumps({"VozAct": "ON"})
-            )
-            st.success("Comando de texto enviado: LED Voz ON")
+# Función auxiliar para armar el JSON y publicarlo
+def enviar_comando_mqtt(llave, valor):
+    if "mqtt_client" in st.session_state:
+        # Formato del mensaje estructurado esperado por el callback del ESP32
+        comando = {llave: valor}
+        json_comando = json.dumps(comando)
+        st.session_state.mqtt_client.publish("cmqtt_s", json_comando)
 
-        elif "apagar" in comando or "desactivar" in comando:
-            st.session_state.client.publish(
-                "cmqtt_s",
-                json.dumps({"VozAct": "OFF"})
-            )
-            st.warning("Comando de texto enviado: LED Voz OFF")
+with col_btn1:
+    st.write("**Sistema de Alarma General**")
+    if st.button("🚨 Encender Alarma", use_container_width=True):
+        enviar_comando_mqtt("Act1", "ON")
+        st.session_state.estado_alarma = "ON"
+        st.info("Comando enviado: Encender Alarma (Servo 180°, Buzzer y LED 2)")
+        
+    if st.button("🛑 Apagar Alarma", use_container_width=True):
+        enviar_comando_mqtt("Act1", "OFF")
+        st.session_state.estado_alarma = "OFF"
+        st.success("Comando enviado: Apagar Alarma (Servo 0° y Silenciar)")
 
-# ==========================================
-# IA FACIAL
-# ==========================================
-elif pagina == "📷 Reconocimiento Facial IA":
-    st.title("📷 Reconocimiento Facial IA")
+with col_btn2:
+    st.write("**Acceso (Simulación Facial)**")
+    if st.button("🔓 Conceder Acceso (Abrir Puerta)", use_container_width=True):
+        enviar_comando_mqtt("door", "OPEN")
+        st.warning("Comando enviado: Abrir puerta temporalmente")
+        
+    if st.button("🔒 Denegar Acceso (Alerta)", use_container_width=True):
+        enviar_comando_mqtt("door", "DENY")
+        st.error("Comando enviado: Bloquear acceso y parpadear alerta")
 
-    foto = st.camera_input("Tomar Foto")
+with col_btn3:
+    st.write("**Módulo de Voz / Texto**")
+    if st.button("💡 Activar LED de Voz", use_container_width=True):
+        enviar_comando_mqtt("VozAct", "ON")
+        st.session_state.estado_voz = "ON"
+        st.info("Comando enviado: Encender LED Exclusivo por Voz (Pin 5)")
+        
+    if st.button("🔌 Desactivar LED de Voz", use_container_width=True):
+        enviar_comando_mqtt("VozAct", "OFF")
+        st.session_state.estado_voz = "OFF"
+        st.success("Comando enviado: Apagar LED de Voz (Pin 5)")
 
-    if foto is not None:
-        img = Image.open(foto)
-        st.image(img, width=300)
-
-        # Preprocesamiento
-        img = img.resize((224, 224))
-        img_array = np.array(img)
-        normalized_image_array = (img_array.astype(np.float32) / 127.0) - 1
-
-        data = np.ndarray(shape=(1, 224, 224, 3), dtype=np.float32)
-        data[0] = normalized_image_array
-
-        # Predicción IA
-        prediction = model.predict(data)
-        index = np.argmax(prediction)
-        confidence = prediction[0][index]
-        clase = class_names[index]
-
-        st.success(f"Detectado: {clase}")
-        st.write(f"Probabilidad: {confidence:.2f}")
-
-        # Control Puerta
-        if clase == "Abrir puerta" and confidence > 0.80:
-            st.session_state.client.publish(
-                "cmqtt_s",
-                json.dumps({"door": "OPEN"})
-            )
-            st.success("✅ Acceso permitido")
-
-        elif clase == "Denegar acceso" and confidence > 0.80:
-            st.session_state.client.publish(
-                "cmqtt_s",
-                json.dumps({"door": "DENY"})
-            )
-            st.error("🚨 Acceso denegado")
-
-# ==========================================
-# FOOTER
-# ==========================================
-st.sidebar.markdown("---")
-st.sidebar.markdown(
-    """
-    <div style='text-align:center; font-weight:bold; color:#4F8BF9;'>
-        👨‍💻 Juan Felipe<br>
-        👨‍💻 Santiago Marín
-    </div>
-    """,
-    unsafe_allow_html=True
-)
+# --- SECCIÓN C: PIE DE PÁGINA INFORMATIVO ---
+st.sidebar.subheader("⚙️ Configuración de Red")
+st.sidebar.text(f"Broker IP: 157.230.214.127")
+st.sidebar.text("Puerto: 1883")
+st.sidebar.divider()
+st.sidebar.write("**Monitoreo de Variables Internas:**")
+st.sidebar.json({
+    "Alarma General": st.session_state.estado_alarma,
+    "Módulo Voz": st.session_state.estado_voz,
+    "Sensor DHT22 Coordenadas": "GPIO 16 (Etiqueta 4)"
+})
