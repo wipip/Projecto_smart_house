@@ -34,10 +34,10 @@ BROKER = "157.230.214.127"
 PORT = 1883
 
 # ==========================================
-# MQTT + ESTADO GLOBAL
+# MQTT + ESTADO GLOBAL (Corregido y Unificado)
 # ==========================================
 if "client" not in st.session_state:
-    # Usar la API Callback estándar de Paho MQTT
+    # Usar la API Callback estándar de Paho MQTT VERSION1
     st.session_state.client = paho.Client(callback_api_version=paho.CallbackAPIVersion.VERSION1)
     st.session_state.sensor_data = {
         "temperature": 0,
@@ -46,13 +46,14 @@ if "client" not in st.session_state:
     }
     st.session_state.connected = False
 
-def on_message(client, userdata, message):
+# CORRECCIÓN CRÍTICA: Se añade el argumento 'flags' exigido por VERSION1
+def on_message(client, userdata, message, flags=None):
     try:
         payload = message.payload.decode("utf-8")
         # Guardamos directamente en el estado global para que persista
         st.session_state.sensor_data = json.loads(payload)
     except Exception as e:
-        pass
+        print(f"Error en recepción MQTT: {e}")
 
 if not st.session_state.connected:
     try:
@@ -68,29 +69,6 @@ if not st.session_state.connected:
 # Esta pequeña instrucción obliga al cliente de red a revisar si hay datos nuevos acumulados en el buffer
 if st.session_state.connected:
     st.session_state.client.loop(timeout=0.1)
-
-# ==========================================
-# CALLBACK MQTT
-# ==========================================
-def on_message(client, userdata, message):
-    try:
-        payload = message.payload.decode("utf-8")
-        st.session_state.sensor_data = json.loads(payload)
-    except Exception as e:
-        print(f"Error en recepción MQTT: {e}")
-
-# ==========================================
-# CONEXIÓN MQTT
-# ==========================================
-if not st.session_state.connected:
-    try:
-        st.session_state.client.on_message = on_message
-        st.session_state.client.connect(BROKER, PORT)
-        st.session_state.client.subscribe("smartcase/sensors")
-        st.session_state.client.loop_start()
-        st.session_state.connected = True
-    except Exception as e:
-        st.error(f"Error MQTT: {e}")
 
 # ==========================================
 # CARGAR MODELO IA
