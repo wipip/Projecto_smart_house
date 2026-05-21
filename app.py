@@ -121,8 +121,8 @@ pagina = st.sidebar.radio(
 # DASHBOARD
 # ==========================================
 if pagina == "📊 Dashboard":
-    st.title("🏠 SmartCase Dashboard")
-    st.write("Gestiona la recepción de datos y actuadores de la maleta inteligente.")
+    st.title("🏠 SmartHouse Dashboard")
+    st.write("Gestiona la recepción de datos y actuadores de la casa inteligente.")
     
     # 1. BOTÓN DE PETICIÓN MANUAL (Reemplaza por completo el molesto loop automático)
     if st.button("🔄 Recibir datos del Wokwi", use_container_width=True):
