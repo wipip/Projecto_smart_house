@@ -35,12 +35,10 @@ PORT = 1883
 TOPIC_RECEIVE = "Sensor/THP2"
 TOPIC_SEND = "cmqtt_s"
 
-# Variables de estado en sesión
 if 'sensor_data' not in st.session_state:
     st.session_state.sensor_data = {"temperature": 0.0, "humidity": 0.0, "motion": 0}
 
 def obtener_datos_wokwi_sincrono():
-    """Función basada 100% en su prototipo exitoso de captura por tiempo"""
     message_received = {"received": False, "payload": None}
     
     def on_message(client, userdata, message):
@@ -59,7 +57,6 @@ def obtener_datos_wokwi_sincrono():
         client.subscribe(TOPIC_RECEIVE)
         client.loop_start()
         
-        # Ventana de tiempo controlada (mismo método de su ejemplo)
         timeout = time.time() + 0.2
         while not message_received["received"] and time.time() < timeout:
             time.sleep(0.01)
@@ -69,10 +66,9 @@ def obtener_datos_wokwi_sincrono():
         
         if message_received["received"] and message_received["payload"]:
             raw_data = message_received["payload"]
-            # Mapeo y traducción de las llaves del JSON (Garantiza compatibilidad)
             st.session_state.sensor_data = {
-                "temperature": raw_data.get("Temp", raw_data.get("temperature", 0.0)),
-                "humidity": raw_data.get("Hum", raw_data.get("humidity", 0.0)),
+                "temperature": raw_data.get("temperature", 0.0),
+                "humidity": raw_data.get("humidity", 0.0),
                 "motion": raw_data.get("motion", 0)
             }
     except:
