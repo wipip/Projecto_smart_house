@@ -34,41 +34,48 @@ BROKER = "157.230.214.127"
 PORT = 1883
 
 # ==========================================
-# MQTT + ESTADO GLOBAL (Corregido y Unificado)
+# MQTT + ESTADO GLOBAL ROBUSTO
 # ==========================================
-if "client" not in st.session_state:
-    # Usar la API Callback estándar de Paho MQTT VERSION1
-    st.session_state.client = paho.Client(callback_api_version=paho.CallbackAPIVersion.VERSION1)
+if "sensor_data" not in st.session_state:
     st.session_state.sensor_data = {
-        "temperature": 0,
-        "humidity": 0,
+        "temperature": 0.0,
+        "humidity": 0.0,
         "motion": 0
     }
-    st.session_state.connected = False
 
-# CORRECCIÓN CRÍTICA: Se añade el argumento 'flags' exigido por VERSION1
-def on_message(client, userdata, message, flags=None):
+# Callback universal (acepta argumentos de la versión vieja y nueva de Paho)
+def on_message(*args, **kwargs):
     try:
-        payload = message.payload.decode("utf-8")
-        # Guardamos directamente en el estado global para que persista
-        st.session_state.sensor_data = json.loads(payload)
+        # En Paho MQTT, el objeto mensaje suele ser el tercer argumento posicional
+        message = args[2] if len(args) > 2 else kwargs.get("message")
+        if message:
+            payload = message.payload.decode("utf-8")
+            st.session_state.sensor_data = json.loads(payload)
     except Exception as e:
-        print(f"Error en recepción MQTT: {e}")
+        pass
 
-if not st.session_state.connected:
+# Asegurar que el cliente esté creado, conectado y con el bucle activo
+if "client" not in st.session_state:
     try:
+        # Inicialización segura compatible con múltiples versiones de Paho
+        try:
+            st.session_state.client = paho.Client(callback_api_version=paho.CallbackAPIVersion.VERSION1)
+        except AttributeError:
+            st.session_state.client = paho.Client() # Caída de seguridad para versiones antiguas
+            
         st.session_state.client.on_message = on_message
         st.session_state.client.connect(BROKER, PORT, 60)
         st.session_state.client.subscribe("smartcase/sensors")
-        # loop_start crea un hilo persistente que sobrevive a los refrescos
         st.session_state.client.loop_start()
-        st.session_state.connected = True
     except Exception as e:
-        st.error(f"Error de conexión MQTT: {e}")
+        st.error(f"Error iniciando conexión de fondo: {e}")
 
-# Esta pequeña instrucción obliga al cliente de red a revisar si hay datos nuevos acumulados en el buffer
-if st.session_state.connected:
-    st.session_state.client.loop(timeout=0.1)
+# Forzar una lectura manual rápida en cada refresco de la página por si el hilo se duerme
+else:
+    try:
+        st.session_state.client.loop(timeout=0.05)
+    except Exception:
+        pass
 
 # ==========================================
 # CARGAR MODELO IA
@@ -139,13 +146,12 @@ if pagina == "📊 Dashboard":
         st.warning("Alarma desactivada")
 
 # ==========================================
-# VOZ + TEXTO (Modificado Exclusivo Pin 5)
+# VOZ + TEXTO
 # ==========================================
 elif pagina == "🎙️ Voz y Texto":
     st.title("🎙️ Control por Voz (LED Pin 5)")
     st.write("Presiona el botón y habla")
 
-    # Botón Voz
     stt_button = Button(label="🎤 Hablar", width=200)
     stt_button.js_on_event(
         "button_click",
@@ -181,7 +187,6 @@ elif pagina == "🎙️ Voz y Texto":
         debounce_time=0
     )
 
-    # Resultado Voz -> Envía la clave "VozAct"
     if result:
         if "GET_TEXT" in result:
             voz = result.get("GET_TEXT").lower()
@@ -201,7 +206,6 @@ elif pagina == "🎙️ Voz y Texto":
                 )
                 st.warning("Comando enviado: Apagar LED Voz")
 
-    # Entrada de Texto -> Envía la clave "VozAct"
     st.markdown("---")
     comando = st.text_input("Escribe un comando:").lower()
 
@@ -232,7 +236,6 @@ elif pagina == "📷 Reconocimiento Facial IA":
         img = Image.open(foto)
         st.image(img, width=300)
 
-        # Preprocesamiento
         img = img.resize((224, 224))
         img_array = np.array(img)
         normalized_image_array = (img_array.astype(np.float32) / 127.0) - 1
@@ -240,7 +243,6 @@ elif pagina == "📷 Reconocimiento Facial IA":
         data = np.ndarray(shape=(1, 224, 224, 3), dtype=np.float32)
         data[0] = normalized_image_array
 
-        # Predicción IA
         prediction = model.predict(data)
         index = np.argmax(prediction)
         confidence = prediction[0][index]
@@ -249,7 +251,6 @@ elif pagina == "📷 Reconocimiento Facial IA":
         st.success(f"Detectado: {clase}")
         st.write(f"Probabilidad: {confidence:.2f}")
 
-        # Control Puerta
         if clase == "Abrir puerta" and confidence > 0.80:
             st.session_state.client.publish(
                 "cmqtt_s",
