@@ -8,11 +8,6 @@ from keras.models import load_model
 from PIL import Image
 
 # ==========================================
-# REFRESH AUTOMÁTICO
-# ==========================================
-from streamlit_autorefresh import st_autorefresh
-
-# ==========================================
 # BOKEH
 # ==========================================
 from bokeh.models.widgets import Button
@@ -28,17 +23,19 @@ st.set_page_config(
 )
 
 # ==========================================
-# CONFIGURACIÓN MQTT UNIFICADA (Tomada de su ejemplo)
+# CONFIGURACIÓN MQTT UNIFICADA
 # ==========================================
 BROKER = "broker.mqttdashboard.com"
 PORT = 1883
 TOPIC_RECEIVE = "Sensor/THP3"
 TOPIC_SEND = "cmqtt_s"
 
+# Mantener los datos estables en la sesión
 if 'sensor_data' not in st.session_state:
     st.session_state.sensor_data = {"temperature": 0.0, "humidity": 0.0, "motion": 0}
 
 def obtener_datos_wokwi_sincrono():
+    """Función síncrona controlada por tiempo aislada para el botón"""
     message_received = {"received": False, "payload": None}
     
     def on_message(client, userdata, message):
@@ -50,6 +47,7 @@ def obtener_datos_wokwi_sincrono():
             pass
             
     try:
+        # ID único dinámico por cada clic para evitar conflictos de sesión en el Broker
         client_id = f"st_client_fetch_{int(time.time())}"
         client = mqtt.Client(client_id=client_id)
         client.on_message = on_message
@@ -57,9 +55,10 @@ def obtener_datos_wokwi_sincrono():
         client.subscribe(TOPIC_RECEIVE)
         client.loop_start()
         
-        timeout = time.time() + 0.2
+        # Espera controlada de hasta 1.5 segundos para pescar el dato en vivo de Wokwi
+        timeout = time.time() + 1.5
         while not message_received["received"] and time.time() < timeout:
-            time.sleep(0.01)
+            time.sleep(0.05)
             
         client.loop_stop()
         client.disconnect()
@@ -71,11 +70,11 @@ def obtener_datos_wokwi_sincrono():
                 "humidity": raw_data.get("humidity", 0.0),
                 "motion": raw_data.get("motion", 0)
             }
-    except:
-        pass
-
-# Forzar la lectura síncrona en la raíz antes de pintar los menús
-obtener_datos_wokwi_sincrono()
+            return True
+        return False
+    except Exception as e:
+        st.error(f"Error de conexión con el Broker: {e}")
+        return False
 
 # Cliente persistente en sesión exclusivo para el ENVÍO de comandos hacia Wokwi
 if "client" not in st.session_state:
@@ -123,10 +122,20 @@ pagina = st.sidebar.radio(
 # ==========================================
 if pagina == "📊 Dashboard":
     st.title("🏠 SmartCase Dashboard")
+    st.write("Gestiona la recepción de datos y actuadores de la maleta inteligente.")
     
-    # Auto-refresco original de su proyecto intacto
-    st_autorefresh(interval=2000, key="datarefresh")
+    # 1. BOTÓN DE PETICIÓN MANUAL (Reemplaza por completo el molesto loop automático)
+    if st.button("🔄 Recibir datos del Wokwi", use_container_width=True):
+        with st.spinner("Conectando al canal seguro y extrayendo telemetría..."):
+            exito = obtener_datos_wokwi_sincrono()
+            if exito:
+                st.success("✅ Datos sincronizados correctamente")
+            else:
+                st.warning("⚠️ No se detectaron datos nuevos de la ESP32 en este ciclo (Verifica que Wokwi esté corriendo)")
 
+    st.markdown("---")
+
+    # Muestra los datos retenidos de la última consulta exitosa
     data = st.session_state.sensor_data
 
     c1, c2, c3 = st.columns(3)
@@ -141,14 +150,14 @@ if pagina == "📊 Dashboard":
 
     b1, b2 = st.columns(2)
 
-    if b1.button("🚨 Activar Alarma"):
+    if b1.button("🚨 Activar Alarma", use_container_width=True):
         st.session_state.client.publish(
             TOPIC_SEND,
             json.dumps({"Act1": "ON"})
         )
         st.success("Alarma activada")
 
-    if b2.button("🟢 Desactivar Alarma"):
+    if b2.button("🟢 Desactivar Alarma", use_container_width=True):
         st.session_state.client.publish(
             TOPIC_SEND,
             json.dumps({"Act1": "OFF"})
