@@ -3,7 +3,7 @@ numpy==1.23.5
 tensorflow-cpu==2.12.0
 keras==2.12.0
 pillow
-paho-mqtt
+paho-mqtt==1.6.1
 opencv-python-headless
 bokeh==2.4.3
 streamlit-bokeh-events==0.1.2
