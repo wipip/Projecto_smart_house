@@ -45,11 +45,12 @@ def obtener_datos_wokwi_sincrono():
             print(f"\n[MQTT INCOMING] Mensaje recibido en bruto en el tópico {message.topic}:")
             print(f"👉 {cadena_texto}")
             
-            payload = json.loads(cadena_texto)
+            payload = json.loads(message.payload.decode())
             message_received["payload"] = payload
             message_received["received"] = True
         except Exception as e:
-            print(f"❌ Error procesando el JSON entrante de MQTT: {e}")
+            message_received["payload"] = message.payload.decode()
+            message_received["received"] = True
             
     try:
         # Generar un ID aleatorio único para esta consulta momentánea
