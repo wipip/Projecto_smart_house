@@ -8,18 +8,9 @@ from keras.models import load_model
 from PIL import Image
 
 # ==========================================
-# REFRESH AUTOMÁTICO (Global para toda la App)
+# REFRESH AUTOMÁTICO
 # ==========================================
 from streamlit_autorefresh import st_autorefresh
-
-# CONFIGURACIÓN DE PÁGINA (Debe ser lo primero)
-st.set_page_config(
-    page_title="SmartCase AI",
-    layout="wide"
-)
-
-# Colocamos el refresco en la raíz para que sincronice el hilo MQTT de fondo constantemente
-st_autorefresh(interval=2000, key="global_mqtt_refresh")
 
 # ==========================================
 # BOKEH
@@ -29,14 +20,24 @@ from bokeh.models import CustomJS
 from streamlit_bokeh_events import streamlit_bokeh_events
 
 # ==========================================
+# CONFIG
+# ==========================================
+st.set_page_config(
+    page_title="SmartCase AI",
+    layout="wide"
+)
+
+# ==========================================
 # MQTT CONFIG
 # ==========================================
 BROKER = "157.230.214.127"
 PORT = 1883
 
 # ==========================================
-# MQTT + ESTADO GLOBAL UNIFICADO
+# MQTT + ESTADO GLOBAL CONTROLADO
 # ==========================================
+
+# 1. Asegurar que las variables existan en memoria
 if "sensor_data" not in st.session_state:
     st.session_state.sensor_data = {
         "temperature": 0.0,
@@ -44,17 +45,18 @@ if "sensor_data" not in st.session_state:
         "motion": 0
     }
 
+# 2. Función Callback unificada y limpia
 def on_message(client, userdata, message, flags=None):
     try:
         payload = message.payload.decode("utf-8")
-        # Actualizamos de forma directa y atómica el estado global
         st.session_state.sensor_data = json.loads(payload)
     except Exception as e:
         pass
 
+# 3. Gestión estricta de la conexión del cliente
 if "client" not in st.session_state:
     try:
-        # Inicialización robusta compatible con Paho MQTT v1 y v2
+        # Inicialización estándar
         try:
             st.session_state.client = paho.Client(callback_api_version=paho.CallbackAPIVersion.VERSION1)
         except AttributeError:
@@ -63,16 +65,23 @@ if "client" not in st.session_state:
         st.session_state.client.on_message = on_message
         st.session_state.client.connect(BROKER, PORT, 60)
         st.session_state.client.subscribe("smartcase/sensors")
+        
+        # En entornos web inestables, loop_start mantiene la sesión abierta en el Broker
         st.session_state.client.loop_start()
     except Exception as e:
-        st.error(f"Error de conexión MQTT: {e}")
+        st.error(f"Error de inicialización MQTT: {e}")
 
-# Asegura que el buffer de red se limpie en cada ciclo de renderizado
+# 4. EL TRUCO MAESTRO: Forzar al cliente a procesar el búfer en cada ciclo del servidor
 if "client" in st.session_state:
     try:
-        st.session_state.client.loop(timeout=0.01)
-    except:
-        pass
+        # Forzar una lectura síncrona instantánea de los datos acumulados
+        st.session_state.client.loop(timeout=0.2)
+    except Exception:
+        # Si el socket se cerró por el refresh, reconectar silenciosamente
+        try:
+            st.session_state.client.reconnect()
+        except:
+            pass
 
 # ==========================================
 # CARGAR MODELO IA
@@ -111,7 +120,8 @@ pagina = st.sidebar.radio(
 if pagina == "📊 Dashboard":
     st.title("🏠 SmartCase Dashboard")
     
-    # Se eliminó el st_autorefresh local que causaba el bucle infinito y los ceros fijos
+    # Mantenemos el refresco exactamente donde lo tenían originalmente
+    st_autorefresh(interval=2000, key="datarefresh")
 
     data = st.session_state.sensor_data
 
