@@ -32,12 +32,13 @@ st.set_page_config(
 # ==========================================
 BROKER = "157.230.214.127"
 PORT = 1883
+TOPIC_SENSORES = "smartcase/sensors"
 
 # ==========================================
-# MQTT + ESTADO GLOBAL FIJO (Solución de Recepción)
+# CONEXIÓN MQTT SÍNCRONA (Apta para Servidores Web)
 # ==========================================
 
-# 1. Inicializar la estructura de datos en la memoria de la sesión si no existe
+# Inicializar los datos en memoria si no existen
 if "sensor_data" not in st.session_state:
     st.session_state.sensor_data = {
         "temperature": 0.0,
@@ -45,50 +46,50 @@ if "sensor_data" not in st.session_state:
         "motion": 0
     }
 
-# 2. Callback de recepción de mensajes (Acepta cualquier firma de argumentos de Paho)
-def on_message(*args, **kwargs):
+# Callback limpio que guarda los datos directamente al recibir el mensaje
+def on_message_sincrono(client, userdata, message, flags=None):
     try:
-        # Paho MQTT envía el objeto 'message' como tercer argumento posicional
-        msg = args[2] if len(args) > 2 else kwargs.get("message")
-        if msg:
-            payload = msg.payload.decode("utf-8")
-            # Guardamos los datos de forma segura en la sesión
-            st.session_state.sensor_data = json.loads(payload)
-    except Exception as e:
+        payload = message.payload.decode("utf-8")
+        st.session_state.sensor_data = json.loads(payload)
+    except:
         pass
 
-# 3. Inicialización única y persistente del cliente MQTT
+# Función maestra que se ejecuta en cada pestañeo de la página
+def actualizar_datos_mqtt():
+    try:
+        # Creamos un cliente temporal rápido para traer el último mensaje retenido
+        client_id = f"SmartCase-Fetch-{int(time.time())}"
+        
+        try:
+            client = paho.Client(client_id=client_id, callback_api_version=paho.CallbackAPIVersion.VERSION1)
+        except AttributeError:
+            client = paho.Client(client_id=client_id)
+            
+        client.on_message = on_message_sincrono
+        client.connect(BROKER, PORT, 10)
+        client.subscribe(TOPIC_SENSORES)
+        
+        # Escucha activamente durante 200 milisegundos y se desconecta de forma limpia
+        client.loop(timeout=0.2)
+        client.disconnect()
+    except:
+        pass
+
+# Ejecutar la actualización en la raíz antes de pintar el Dashboard
+actualizar_datos_mqtt()
+
+# Creamos un cliente exclusivo para los botones de envío si no existe
 if "client" not in st.session_state:
     try:
-        # ID de cliente dinámico basado en el tiempo para evitar que el Broker nos desconecte
-        client_id = f"SmartCase-App-{int(time.time())}"
-        
+        client_id_send = f"SmartCase-Send-{int(time.time())}"
         try:
-            st.session_state.client = paho.Client(client_id=client_id, callback_api_version=paho.CallbackAPIVersion.VERSION1)
+            st.session_state.client = paho.Client(client_id=client_id_send, callback_api_version=paho.CallbackAPIVersion.VERSION1)
         except AttributeError:
-            st.session_state.client = paho.Client(client_id=client_id)
-            
-        st.session_state.client.on_message = on_message
+            st.session_state.client = paho.Client(client_id=client_id_send)
         st.session_state.client.connect(BROKER, PORT, 60)
-        st.session_state.client.subscribe("smartcase/sensors")
-        
-        # loop_start() mantiene la conexión de red abierta en segundo plano
         st.session_state.client.loop_start()
     except Exception as e:
-        st.error(f"Error de inicialización de red: {e}")
-
-# 4. EL PASO CLAVE: Forzar una comprobación manual del buffer de red en la raíz del script
-if "client" in st.session_state:
-    try:
-        # detiene la ejecución 100ms para asegurar que el mensaje de Wokwi sea capturado 
-        # antes de que Streamlit pase a dibujar el HTML de la pantalla.
-        st.session_state.client.loop(timeout=0.1)
-    except Exception:
-        # En caso de desconexión por el refresco del servidor web, reconectar al instante
-        try:
-            st.session_state.client.reconnect()
-        except:
-            pass
+        st.error(f"Error en pasarela de comandos: {e}")
 
 # ==========================================
 # CARGAR MODELO IA
@@ -127,10 +128,9 @@ pagina = st.sidebar.radio(
 if pagina == "📊 Dashboard":
     st.title("🏠 SmartCase Dashboard")
     
-    # Mantenemos el auto-refresco exactamente donde lo tenían diseñado
+    # Auto-refresco original intacto
     st_autorefresh(interval=2000, key="datarefresh")
 
-    # Extraemos los datos del estado global de la sesión de Streamlit
     data = st.session_state.sensor_data
 
     c1, c2, c3 = st.columns(3)
