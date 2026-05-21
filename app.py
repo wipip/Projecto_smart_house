@@ -20,7 +20,7 @@ from bokeh.models import CustomJS
 from streamlit_bokeh_events import streamlit_bokeh_events
 
 # ==========================================
-# CONFIG
+# CONFIGURACIÓN DE PÁGINA
 # ==========================================
 st.set_page_config(
     page_title="SmartCase AI",
@@ -28,17 +28,16 @@ st.set_page_config(
 )
 
 # ==========================================
-# MQTT CONFIG
+# CONFIGURACIÓN MQTT
 # ==========================================
 BROKER = "157.230.214.127"
 PORT = 1883
-TOPIC_SENSORES = "smartcase/sensors"
+TOPIC_RECEIVE = "smartcase/sensors"
+TOPIC_SEND = "cmqtt_s"
 
 # ==========================================
-# CONEXIÓN MQTT SÍNCRONA (Apta para Servidores Web)
+# LÓGICA DE RECEPCIÓN ADAPTADA DE SU SCRIPT DE PRUEBA
 # ==========================================
-
-# Inicializar los datos en memoria si no existen
 if "sensor_data" not in st.session_state:
     st.session_state.sensor_data = {
         "temperature": 0.0,
@@ -46,50 +45,60 @@ if "sensor_data" not in st.session_state:
         "motion": 0
     }
 
-# Callback limpio que guarda los datos directamente al recibir el mensaje
-def on_message_sincrono(client, userdata, message, flags=None):
-    try:
-        payload = message.payload.decode("utf-8")
-        st.session_state.sensor_data = json.loads(payload)
-    except:
-        pass
-
-# Función maestra que se ejecuta en cada pestañeo de la página
-def actualizar_datos_mqtt():
-    try:
-        # Creamos un cliente temporal rápido para traer el último mensaje retenido
-        client_id = f"SmartCase-Fetch-{int(time.time())}"
-        
+def capturar_lectura_instantanea():
+    """Técnica basada en su código de prueba para forzar la captura del mensaje"""
+    contenedor_mensaje = {"recibido": False, "payload": None}
+    
+    def on_message_callback(client, userdata, message):
         try:
-            client = paho.Client(client_id=client_id, callback_api_version=paho.CallbackAPIVersion.VERSION1)
-        except AttributeError:
-            client = paho.Client(client_id=client_id)
-            
-        client.on_message = on_message_sincrono
-        client.connect(BROKER, PORT, 10)
-        client.subscribe(TOPIC_SENSORES)
+            payload = json.loads(message.payload.decode("utf-8"))
+            contenedor_mensaje["payload"] = payload
+            contenedor_mensaje["recibido"] = True
+        except:
+            pass
+
+    try:
+        # ID único dinámico para evitar colisiones en el Broker público
+        id_unico = f"SmartCase-Fetch-{int(time.time())}"
         
-        # Escucha activamente durante 200 milisegundos y se desconecta de forma limpia
-        client.loop(timeout=0.2)
-        client.disconnect()
+        # Inicialización robusta compatible con Paho v1 y v2 instaladas en Streamlit Cloud
+        try:
+            lector = paho.Client(client_id=id_unico, callback_api_version=paho.CallbackAPIVersion.VERSION1)
+        except AttributeError:
+            lector = paho.Client(client_id=id_unico)
+            
+        lector.on_message = on_message_callback
+        lector.connect(BROKER, PORT, 10)
+        lector.subscribe(TOPIC_RECEIVE)
+        
+        # Mantenemos el bucle de escucha por un destello de 80ms en cada ciclo de la página
+        lector.loop_start()
+        timeout = time.time() + 0.08
+        while not contenedor_mensaje["recibido"] and time.time() < timeout:
+            time.sleep(0.01)
+        lector.loop_stop()
+        lector.disconnect()
+        
+        if contenedor_mensaje["recibido"] and contenedor_mensaje["payload"]:
+            st.session_state.sensor_data = contenedor_mensaje["payload"]
     except:
         pass
 
-# Ejecutar la actualización en la raíz antes de pintar el Dashboard
-actualizar_datos_mqtt()
+# Ejecución automática en la raíz para pescar los datos antes de renderizar las pestañas
+capturar_lectura_instantanea()
 
-# Creamos un cliente exclusivo para los botones de envío si no existe
+# Cliente persistente exclusivo para el ENVÍO de comandos (Voz, Botones, IA)
 if "client" not in st.session_state:
     try:
-        client_id_send = f"SmartCase-Send-{int(time.time())}"
+        id_emisor = f"SmartCase-Sender-{int(time.time())}"
         try:
-            st.session_state.client = paho.Client(client_id=client_id_send, callback_api_version=paho.CallbackAPIVersion.VERSION1)
+            st.session_state.client = paho.Client(client_id=id_emisor, callback_api_version=paho.CallbackAPIVersion.VERSION1)
         except AttributeError:
-            st.session_state.client = paho.Client(client_id=client_id_send)
+            st.session_state.client = paho.Client(client_id=id_emisor)
         st.session_state.client.connect(BROKER, PORT, 60)
         st.session_state.client.loop_start()
     except Exception as e:
-        st.error(f"Error en pasarela de comandos: {e}")
+        st.error(f"Error en pasarela de comandos de salida: {e}")
 
 # ==========================================
 # CARGAR MODELO IA
@@ -128,17 +137,17 @@ pagina = st.sidebar.radio(
 if pagina == "📊 Dashboard":
     st.title("🏠 SmartCase Dashboard")
     
-    # Auto-refresco original intacto
+    # Auto-refresco intacto como lo tenían originalmente configurado
     st_autorefresh(interval=2000, key="datarefresh")
 
     data = st.session_state.sensor_data
 
     c1, c2, c3 = st.columns(3)
-    c1.metric("Temperatura", f"{data['temperature']} °C")
-    c2.metric("Humedad", f"{data['humidity']} %")
+    c1.metric("Temperatura", f"{data.get('temperature', 0.0)} °C")
+    c2.metric("Humedad", f"{data.get('humidity', 0.0)} %")
     c3.metric(
         "Movimiento",
-        "⚠️ Detectado" if data["motion"] == 1 else "✅ Seguro"
+        "⚠️ Detectado" if data.get("motion", 0) == 1 else "✅ Seguro"
     )
     
     st.markdown("---")
@@ -147,14 +156,14 @@ if pagina == "📊 Dashboard":
 
     if b1.button("🚨 Activar Alarma"):
         st.session_state.client.publish(
-            "cmqtt_s",
+            TOPIC_SEND,
             json.dumps({"Act1": "ON"})
         )
         st.success("Alarma activada")
 
     if b2.button("🟢 Desactivar Alarma"):
         st.session_state.client.publish(
-            "cmqtt_s",
+            TOPIC_SEND,
             json.dumps({"Act1": "OFF"})
         )
         st.warning("Alarma desactivada")
@@ -208,14 +217,14 @@ elif pagina == "🎙️ Voz y Texto":
 
             if "activar" in voz or "encender" in voz or "prender" in voz:
                 st.session_state.client.publish(
-                    "cmqtt_s",
+                    TOPIC_SEND,
                     json.dumps({"VozAct": "ON"})
                 )
                 st.success("Comando enviado: Encender LED Voz")
 
             elif "apagar" in voz or "desactivar" in voz:
                 st.session_state.client.publish(
-                    "cmqtt_s",
+                    TOPIC_SEND,
                     json.dumps({"VozAct": "OFF"})
                 )
                 st.warning("Comando enviado: Apagar LED Voz")
@@ -226,14 +235,14 @@ elif pagina == "🎙️ Voz y Texto":
     if st.button("Enviar Texto"):
         if "activar" in comando or "encender" in comando:
             st.session_state.client.publish(
-                "cmqtt_s",
+                TOPIC_SEND,
                 json.dumps({"VozAct": "ON"})
             )
             st.success("Comando de texto enviado: LED Voz ON")
 
         elif "apagar" in comando or "desactivar" in comando:
             st.session_state.client.publish(
-                "cmqtt_s",
+                TOPIC_SEND,
                 json.dumps({"VozAct": "OFF"})
             )
             st.warning("Comando de texto enviado: LED Voz OFF")
@@ -267,14 +276,14 @@ elif pagina == "📷 Reconocimiento Facial IA":
 
         if clase == "Abrir puerta" and confidence > 0.80:
             st.session_state.client.publish(
-                "cmqtt_s",
+                TOPIC_SEND,
                 json.dumps({"door": "OPEN"})
             )
             st.success("✅ Acceso permitido")
 
         elif clase == "Denegar acceso" and confidence > 0.80:
             st.session_state.client.publish(
-                "cmqtt_s",
+                TOPIC_SEND,
                 json.dumps({"door": "DENY"})
             )
             st.error("🚨 Acceso denegado")
