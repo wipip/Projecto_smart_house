@@ -36,7 +36,7 @@ if 'sensor_data' not in st.session_state:
 
 def obtener_datos_wokwi_sincrono():
     """Captura datos de forma síncrona imprimiendo la carga útil recibida en la consola"""
-    control_box = {"received": False, "payload": None}
+    message_received = {"received": False, "payload": None}
     
     def on_message(client, userdata, message):
         try:
@@ -46,8 +46,8 @@ def obtener_datos_wokwi_sincrono():
             print(f"👉 {cadena_texto}")
             
             payload = json.loads(cadena_texto)
-            control_box["payload"] = payload
-            control_box["received"] = True
+            message_received["payload"] = payload
+            message_received["received"] = True
         except Exception as e:
             print(f"❌ Error procesando el JSON entrante de MQTT: {e}")
             
@@ -67,14 +67,14 @@ def obtener_datos_wokwi_sincrono():
         
         # Ventana de espera controlada de hasta 1.5 segundos
         timeout = time.time() + 1.5
-        while not control_box["received"] and time.time() < timeout:
+        while not message_received["received"] and time.time() < timeout:
             time.sleep(0.02)
             
         # Desconexión inmediata para liberar el canal e impedir saturación en Streamlit
         client.loop_stop()
         client.disconnect()
         
-        if control_box["received"] and control_box["payload"]:
+        if message_received["received"] and message_received["payload"]:
             raw_data = control_box["payload"]
             
             # Mapeo y conversión estricta a tipos numéricos nativos
