@@ -1,5 +1,5 @@
 import streamlit as st
-import paho.mqtt.client as paho
+import paho.mqtt.client as mqtt
 import json
 import time
 import numpy as np
@@ -28,77 +28,68 @@ st.set_page_config(
 )
 
 # ==========================================
-# CONFIGURACIÓN MQTT
+# CONFIGURACIÓN MQTT UNIFICADA (Tomada de su ejemplo)
 # ==========================================
-BROKER = "157.230.214.127"
+BROKER = "broker.mqttdashboard.com"
 PORT = 1883
-TOPIC_RECEIVE = "smartcase/sensors"
+TOPIC_RECEIVE = "Sensor/THP2"
 TOPIC_SEND = "cmqtt_s"
 
-# ==========================================
-# LÓGICA DE RECEPCIÓN ADAPTADA DE SU SCRIPT DE PRUEBA
-# ==========================================
-if "sensor_data" not in st.session_state:
-    st.session_state.sensor_data = {
-        "temperature": 0.0,
-        "humidity": 0.0,
-        "motion": 0
-    }
+# Variables de estado en sesión
+if 'sensor_data' not in st.session_state:
+    st.session_state.sensor_data = {"temperature": 0.0, "humidity": 0.0, "motion": 0}
 
-def capturar_lectura_instantanea():
-    """Técnica basada en su código de prueba para forzar la captura del mensaje"""
-    contenedor_mensaje = {"recibido": False, "payload": None}
+def obtener_datos_wokwi_sincrono():
+    """Función basada 100% en su prototipo exitoso de captura por tiempo"""
+    message_received = {"received": False, "payload": None}
     
-    def on_message_callback(client, userdata, message):
+    def on_message(client, userdata, message):
         try:
-            payload = json.loads(message.payload.decode("utf-8"))
-            contenedor_mensaje["payload"] = payload
-            contenedor_mensaje["recibido"] = True
+            payload = json.loads(message.payload.decode())
+            message_received["payload"] = payload
+            message_received["received"] = True
         except:
             pass
-
-    try:
-        # ID único dinámico para evitar colisiones en el Broker público
-        id_unico = f"SmartCase-Fetch-{int(time.time())}"
-        
-        # Inicialización robusta compatible con Paho v1 y v2 instaladas en Streamlit Cloud
-        try:
-            lector = paho.Client(client_id=id_unico, callback_api_version=paho.CallbackAPIVersion.VERSION1)
-        except AttributeError:
-            lector = paho.Client(client_id=id_unico)
             
-        lector.on_message = on_message_callback
-        lector.connect(BROKER, PORT, 10)
-        lector.subscribe(TOPIC_RECEIVE)
+    try:
+        client_id = f"st_client_fetch_{int(time.time())}"
+        client = mqtt.Client(client_id=client_id)
+        client.on_message = on_message
+        client.connect(BROKER, PORT, 60)
+        client.subscribe(TOPIC_RECEIVE)
+        client.loop_start()
         
-        # Mantenemos el bucle de escucha por un destello de 80ms en cada ciclo de la página
-        lector.loop_start()
-        timeout = time.time() + 0.08
-        while not contenedor_mensaje["recibido"] and time.time() < timeout:
+        # Ventana de tiempo controlada (mismo método de su ejemplo)
+        timeout = time.time() + 0.2
+        while not message_received["received"] and time.time() < timeout:
             time.sleep(0.01)
-        lector.loop_stop()
-        lector.disconnect()
+            
+        client.loop_stop()
+        client.disconnect()
         
-        if contenedor_mensaje["recibido"] and contenedor_mensaje["payload"]:
-            st.session_state.sensor_data = contenedor_mensaje["payload"]
+        if message_received["received"] and message_received["payload"]:
+            raw_data = message_received["payload"]
+            # Mapeo y traducción de las llaves del JSON (Garantiza compatibilidad)
+            st.session_state.sensor_data = {
+                "temperature": raw_data.get("Temp", raw_data.get("temperature", 0.0)),
+                "humidity": raw_data.get("Hum", raw_data.get("humidity", 0.0)),
+                "motion": raw_data.get("motion", 0)
+            }
     except:
         pass
 
-# Ejecución automática en la raíz para pescar los datos antes de renderizar las pestañas
-capturar_lectura_instantanea()
+# Forzar la lectura síncrona en la raíz antes de pintar los menús
+obtener_datos_wokwi_sincrono()
 
-# Cliente persistente exclusivo para el ENVÍO de comandos (Voz, Botones, IA)
+# Cliente persistente en sesión exclusivo para el ENVÍO de comandos hacia Wokwi
 if "client" not in st.session_state:
     try:
-        id_emisor = f"SmartCase-Sender-{int(time.time())}"
-        try:
-            st.session_state.client = paho.Client(client_id=id_emisor, callback_api_version=paho.CallbackAPIVersion.VERSION1)
-        except AttributeError:
-            st.session_state.client = paho.Client(client_id=id_emisor)
+        client_id_send = f"st_client_send_{int(time.time())}"
+        st.session_state.client = mqtt.Client(client_id=client_id_send)
         st.session_state.client.connect(BROKER, PORT, 60)
         st.session_state.client.loop_start()
     except Exception as e:
-        st.error(f"Error en pasarela de comandos de salida: {e}")
+        st.error(f"Error en pasarela de salida: {e}")
 
 # ==========================================
 # CARGAR MODELO IA
@@ -137,17 +128,17 @@ pagina = st.sidebar.radio(
 if pagina == "📊 Dashboard":
     st.title("🏠 SmartCase Dashboard")
     
-    # Auto-refresco intacto como lo tenían originalmente configurado
+    # Auto-refresco original de su proyecto intacto
     st_autorefresh(interval=2000, key="datarefresh")
 
     data = st.session_state.sensor_data
 
     c1, c2, c3 = st.columns(3)
-    c1.metric("Temperatura", f"{data.get('temperature', 0.0)} °C")
-    c2.metric("Humedad", f"{data.get('humidity', 0.0)} %")
+    c1.metric("Temperatura", f"{data['temperature']} °C")
+    c2.metric("Humedad", f"{data['humidity']} %")
     c3.metric(
         "Movimiento",
-        "⚠️ Detectado" if data.get("motion", 0) == 1 else "✅ Seguro"
+        "⚠️ Detectado" if data["motion"] == 1 else "✅ Seguro"
     )
     
     st.markdown("---")
