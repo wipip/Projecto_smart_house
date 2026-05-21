@@ -43,6 +43,7 @@ def obtener_datos_wokwi_sincrono():
             payload = json.loads(message.payload.decode())
             message_received["payload"] = payload
             message_received["received"] = True
+            st.write(payload)
         except:
             pass
             
