@@ -34,10 +34,10 @@ BROKER = "157.230.214.127"
 PORT = 1883
 
 # ==========================================
-# MQTT + ESTADO GLOBAL CONTROLADO
+# MQTT + ESTADO GLOBAL OPTIMIZADO (Auditoría de Red)
 # ==========================================
 
-# 1. Asegurar que las variables existan en memoria
+# Inicializar el diccionario de almacenamiento en memoria de Streamlit si no existe
 if "sensor_data" not in st.session_state:
     st.session_state.sensor_data = {
         "temperature": 0.0,
@@ -45,43 +45,41 @@ if "sensor_data" not in st.session_state:
         "motion": 0
     }
 
-# 2. Función Callback unificada y limpia
+# Función Callback que recibe los datos desde Wokwi ("smartcase/sensors")
 def on_message(client, userdata, message, flags=None):
     try:
         payload = message.payload.decode("utf-8")
+        # Actualización directa del diccionario global en Streamlit
         st.session_state.sensor_data = json.loads(payload)
     except Exception as e:
         pass
 
-# 3. Gestión estricta de la conexión del cliente
+# Crear y conectar el cliente de red garantizando persistencia
 if "client" not in st.session_state:
     try:
-        # Inicialización estándar
+        # Generar un Client ID único para evitar que el Broker nos desconecte por duplicidad
+        client_id = f"SmartCase-App-{int(time.time())}"
+        
         try:
-            st.session_state.client = paho.Client(callback_api_version=paho.CallbackAPIVersion.VERSION1)
+            st.session_state.client = paho.Client(client_id=client_id, callback_api_version=paho.CallbackAPIVersion.VERSION1)
         except AttributeError:
-            st.session_state.client = paho.Client()
+            st.session_state.client = paho.Client(client_id=client_id)
             
         st.session_state.client.on_message = on_message
         st.session_state.client.connect(BROKER, PORT, 60)
         st.session_state.client.subscribe("smartcase/sensors")
         
-        # En entornos web inestables, loop_start mantiene la sesión abierta en el Broker
+        # loop_start() mantiene la suscripción de red activa en segundo plano
         st.session_state.client.loop_start()
     except Exception as e:
-        st.error(f"Error de inicialización MQTT: {e}")
+        st.error(f"Error crítico en pasarela MQTT: {e}")
 
-# 4. EL TRUCO MAESTRO: Forzar al cliente a procesar el búfer en cada ciclo del servidor
+# Ejecución forzada en la raíz: obliga a procesar los mensajes entrantes de Wokwi
 if "client" in st.session_state:
     try:
-        # Forzar una lectura síncrona instantánea de los datos acumulados
-        st.session_state.client.loop(timeout=0.2)
-    except Exception:
-        # Si el socket se cerró por el refresh, reconectar silenciosamente
-        try:
-            st.session_state.client.reconnect()
-        except:
-            pass
+        st.session_state.client.loop(timeout=0.05)
+    except:
+        pass
 
 # ==========================================
 # CARGAR MODELO IA
@@ -120,7 +118,7 @@ pagina = st.sidebar.radio(
 if pagina == "📊 Dashboard":
     st.title("🏠 SmartCase Dashboard")
     
-    # Mantenemos el refresco exactamente donde lo tenían originalmente
+    # El autorefresh vuelve a renderizar la UI cada 2 segundos para leer el diccionario actualizado
     st_autorefresh(interval=2000, key="datarefresh")
 
     data = st.session_state.sensor_data
